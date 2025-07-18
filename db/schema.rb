@@ -10,9 +10,18 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_07_18_035240) do
+ActiveRecord::Schema[8.0].define(version: 2025_07_18_201650) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "backend_review_group_members", force: :cascade do |t|
+    t.string "username"
+    t.string "avatar_url"
+    t.datetime "fetched_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["username"], name: "index_backend_review_group_members_on_username"
+  end
 
   create_table "check_runs", force: :cascade do |t|
     t.bigint "pull_request_id", null: false
@@ -28,6 +37,34 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_18_035240) do
     t.index ["pull_request_id"], name: "index_check_runs_on_pull_request_id"
     t.index ["required"], name: "index_check_runs_on_required"
     t.index ["status"], name: "index_check_runs_on_status"
+  end
+
+  create_table "daily_snapshots", force: :cascade do |t|
+    t.date "snapshot_date", null: false
+    t.integer "total_prs", default: 0
+    t.integer "approved_prs", default: 0
+    t.integer "prs_with_changes_requested", default: 0
+    t.integer "pending_review_prs", default: 0
+    t.integer "draft_prs", default: 0
+    t.integer "failing_ci_prs", default: 0
+    t.integer "successful_ci_prs", default: 0
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["snapshot_date"], name: "index_daily_snapshots_on_snapshot_date", unique: true
+  end
+
+  create_table "pull_request_reviews", force: :cascade do |t|
+    t.bigint "pull_request_id", null: false
+    t.bigint "github_id"
+    t.string "user"
+    t.string "state"
+    t.text "body"
+    t.datetime "submitted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["github_id"], name: "index_pull_request_reviews_on_github_id", unique: true
+    t.index ["pull_request_id"], name: "index_pull_request_reviews_on_pull_request_id"
+    t.index ["state"], name: "index_pull_request_reviews_on_state"
   end
 
   create_table "pull_requests", force: :cascade do |t|
@@ -46,8 +83,11 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_18_035240) do
     t.integer "failed_checks"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "backend_approval_status", default: "not_approved"
+    t.index ["backend_approval_status"], name: "index_pull_requests_on_backend_approval_status"
     t.index ["github_id"], name: "index_pull_requests_on_github_id", unique: true
   end
 
   add_foreign_key "check_runs", "pull_requests"
+  add_foreign_key "pull_request_reviews", "pull_requests"
 end

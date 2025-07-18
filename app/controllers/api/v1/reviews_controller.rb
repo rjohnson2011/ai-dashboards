@@ -2,13 +2,9 @@ class Api::V1::ReviewsController < ApplicationController
   def index
     begin
       # Fetch all open PRs from database
-      pull_requests = PullRequest.open.includes(:check_runs).order(pr_updated_at: :desc)
+      pull_requests = PullRequest.open.includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
-      # Check if a refresh is already in progress before triggering a new one
-      refresh_status = Rails.cache.read('refresh_status') || {}
-      unless refresh_status[:updating]
-        FetchPullRequestDataJob.perform_later
-      end
+      # Don't trigger job on page load anymore - handled by cron
       
       # If no PRs in database, return empty response with message
       if pull_requests.empty?
@@ -34,11 +30,6 @@ class Api::V1::ReviewsController < ApplicationController
           }
         end
         
-        # Find the backend approval check
-        backend_approval_check = pr.check_runs.find { |check| 
-          check.name&.include?('Succeed if backend approval is confirmed') 
-        }
-        
         {
           id: pr.github_id,
           number: pr.number,
@@ -58,9 +49,8 @@ class Api::V1::ReviewsController < ApplicationController
           total_checks: pr.total_checks,
           successful_checks: pr.successful_checks,
           failed_checks: pr.failed_checks,
-          backend_approval_status: backend_approval_check ? 
-            (backend_approval_check.status == 'unknown' ? 'skipped' : backend_approval_check.status) : 
-            'not_applicable'
+          backend_approval_status: pr.backend_approval_status,
+          approval_summary: pr.approval_summary
         }
       end
       
@@ -141,6 +131,40 @@ class Api::V1::ReviewsController < ApplicationController
     rescue => e
       Rails.logger.error "Error fetching PR #{pr_number}: #{e.message}"
       render json: { error: 'Failed to fetch pull request' }, status: :internal_server_error
+    end
+  end
+
+  def historical
+    begin
+      # Get the number of days from params, default to 30
+      days = params[:days]&.to_i || 30
+      
+      # Get historical snapshots
+      snapshots = DailySnapshot.last_n_days(days)
+      
+      # Format data for the chart
+      chart_data = snapshots.map do |snapshot|
+        {
+          date: snapshot.snapshot_date.to_s,
+          total_prs: snapshot.total_prs,
+          approved_prs: snapshot.approved_prs,
+          pending_review_prs: snapshot.pending_review_prs,
+          changes_requested_prs: snapshot.prs_with_changes_requested,
+          draft_prs: snapshot.draft_prs,
+          failing_ci_prs: snapshot.failing_ci_prs,
+          successful_ci_prs: snapshot.successful_ci_prs
+        }
+      end
+      
+      render json: {
+        data: chart_data,
+        period: "#{days} days",
+        start_date: days.days.ago.to_date.to_s,
+        end_date: Date.current.to_s
+      }
+    rescue => e
+      Rails.logger.error "Error fetching historical data: #{e.message}"
+      render json: { error: 'Failed to fetch historical data' }, status: :internal_server_error
     end
   end
 

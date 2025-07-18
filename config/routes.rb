@@ -12,6 +12,7 @@ Rails.application.routes.draw do
       get 'pull_requests/:number', to: 'reviews#show'
       get 'reviews/status', to: 'reviews#status'
       post 'reviews/refresh', to: 'reviews#refresh'
+      get 'reviews/historical', to: 'reviews#historical'
     end
   end
 

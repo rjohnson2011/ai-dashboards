@@ -90,6 +90,7 @@ class FetchPullRequestDataJob < ApplicationJob
             # Clear existing check runs and create new ones
             pr_record.check_runs.destroy_all
             
+            # Add scraped checks
             checks_data[:checks].each do |check|
               pr_record.check_runs.create!(
                 name: check[:name],
@@ -99,6 +100,83 @@ class FetchPullRequestDataJob < ApplicationJob
                 required: check[:required],
                 suite_name: check[:suite_name]
               )
+            end
+            
+            # Also fetch commit statuses from GitHub API
+            begin
+              combined_status = github_service.commit_status(pr.head.sha)
+              if combined_status
+                # Get unique statuses (latest for each context)
+                unique_statuses = combined_status.statuses.uniq { |s| s.context }
+                
+                unique_statuses.each do |status|
+                  # Map GitHub status states to our status values
+                  mapped_status = case status.state
+                                  when 'success' then 'success'
+                                  when 'failure', 'error' then 'failure'
+                                  when 'pending' then 'pending'
+                                  else 'unknown'
+                                  end
+                  
+                  # Check if this status already exists from scraping
+                  unless pr_record.check_runs.exists?(name: status.context)
+                    pr_record.check_runs.create!(
+                      name: status.context,
+                      status: mapped_status,
+                      url: status.target_url,
+                      description: status.description,
+                      required: false, # We don't know if it's required from the API
+                      suite_name: nil
+                    )
+                  end
+                end
+              end
+              
+              # Update total counts including commit statuses
+              total_checks = pr_record.check_runs.count
+              successful_checks = pr_record.check_runs.where(status: 'success').count
+              failed_checks = pr_record.check_runs.where(status: ['failure', 'error', 'cancelled']).count
+              
+              pr_record.update!(
+                total_checks: total_checks,
+                successful_checks: successful_checks,
+                failed_checks: failed_checks
+              )
+              
+              Rails.logger.info "Added commit statuses for PR ##{pr.number}. Total checks now: #{total_checks}"
+            rescue => e
+              Rails.logger.error "Failed to fetch commit statuses for PR ##{pr.number}: #{e.message}"
+              # Continue processing even if commit statuses fail
+            end
+            
+            # Fetch and update reviews
+            begin
+              reviews = github_service.pull_request_reviews(pr.number)
+              
+              # Clear existing reviews and create new ones
+              pr_record.pull_request_reviews.destroy_all
+              
+              reviews.each do |review|
+                # Skip reviews without a state (drafts)
+                next unless review.state.present?
+                
+                pr_record.pull_request_reviews.create!(
+                  github_id: review.id,
+                  user: review.user.login,
+                  state: review.state,
+                  body: review.body,
+                  submitted_at: review.submitted_at
+                )
+              end
+              
+              Rails.logger.info "Created #{pr_record.pull_request_reviews.count} reviews for PR ##{pr.number}"
+              
+              # Update backend approval status
+              pr_record.update_backend_approval_status!
+              Rails.logger.info "Updated backend approval status for PR ##{pr.number}: #{pr_record.backend_approval_status}"
+            rescue => e
+              Rails.logger.error "Failed to fetch reviews for PR ##{pr.number}: #{e.message}"
+              # Continue processing even if reviews fail
             end
             
             Rails.logger.info "Successfully processed PR ##{pr.number} - Status: #{checks_data[:overall_status]}, Checks: #{checks_data[:total_checks]}"

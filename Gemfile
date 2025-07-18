@@ -42,6 +42,9 @@ gem "octokit", "~> 9.0"
 gem "faraday", "~> 2.0"
 gem "faraday-retry"
 
+# Cron job management
+gem "whenever", require: false
+
 # Environment variables
 gem "dotenv-rails", "~> 3.0"
 

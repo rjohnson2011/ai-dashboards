@@ -1,0 +1,20 @@
+# Use this file to easily define all of your cron jobs.
+# Learn more: http://github.com/javan/whenever
+
+# Set the environment
+set :output, "log/cron.log"
+
+# Run the fetch pull request data job every 15 minutes
+every 15.minutes do
+  runner "FetchPullRequestDataJob.perform_later"
+end
+
+# Capture daily snapshot at 2 AM every day
+every 1.day, at: '2:00 am' do
+  runner "CaptureDailySnapshotJob.perform_later"
+end
+
+# Fetch backend review group members at 2 AM every day
+every 1.day, at: '2:00 am' do
+  runner "FetchBackendReviewGroupJob.perform_later"
+end

@@ -1,5 +1,6 @@
 class PullRequest < ApplicationRecord
   has_many :check_runs, dependent: :destroy
+  has_many :pull_request_reviews, dependent: :destroy
   
   validates :github_id, presence: true, uniqueness: true
   validates :number, presence: true
@@ -41,5 +42,66 @@ class PullRequest < ApplicationRecord
     return 'success' if passing_checks.any?
     
     'pending'
+  end
+  
+  def calculate_backend_approval_status
+    # Check if any backend review group member has approved
+    approved_users = pull_request_reviews
+      .where(state: PullRequestReview::APPROVED)
+      .pluck(:user)
+    
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_approved = (approved_users & backend_members).any?
+    
+    backend_approved ? 'approved' : 'not_approved'
+  end
+  
+  def update_backend_approval_status!
+    self.backend_approval_status = calculate_backend_approval_status
+    save!
+  end
+  
+  def approval_summary
+    # Get the latest review from each user
+    reviews_by_user = pull_request_reviews.group_by(&:user)
+    latest_reviews = reviews_by_user.map { |user, reviews| reviews.max_by(&:submitted_at) }
+    
+    approved_users = []
+    changes_requested_users = []
+    commented_users = []
+    
+    latest_reviews.each do |review|
+      case review.state
+      when PullRequestReview::APPROVED
+        approved_users << review.user
+      when PullRequestReview::CHANGES_REQUESTED
+        changes_requested_users << review.user
+      when PullRequestReview::COMMENTED
+        commented_users << review.user
+      end
+    end
+    
+    # Determine overall status
+    status = if changes_requested_users.any?
+      'changes_requested'
+    elsif approved_users.any? && changes_requested_users.empty?
+      'approved'
+    elsif approved_users.any?
+      'partially_approved'
+    else
+      'pending'
+    end
+    
+    {
+      status: status,
+      approved_count: approved_users.count,
+      changes_requested_count: changes_requested_users.count,
+      pending_count: 0, # We don't track pending reviews
+      approved_users: approved_users,
+      changes_requested_users: changes_requested_users,
+      commented_users: commented_users,
+      pending_users: [],
+      pending_teams: []
+    }
   end
 end

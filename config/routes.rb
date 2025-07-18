@@ -13,6 +13,7 @@ Rails.application.routes.draw do
       get 'reviews/status', to: 'reviews#status'
       post 'reviews/refresh', to: 'reviews#refresh'
       get 'reviews/historical', to: 'reviews#historical'
+      post 'admin/initialize_data', to: 'admin#initialize_data'
     end
   end
 

@@ -10,7 +10,9 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
     # In production, be more specific with your origins
     origins "http://localhost:5173", 
             "https://platform-code-reviews-frontend.onrender.com",
-            /https:\/\/.*\.onrender\.com/
+            "https://ai-dashboards-frontend.vercel.app",
+            /https:\/\/.*\.onrender\.com/,
+            /https:\/\/.*\.vercel\.app/
 
     resource "*",
       headers: :any,

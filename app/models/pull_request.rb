@@ -2,7 +2,7 @@ class PullRequest < ApplicationRecord
   has_many :check_runs, dependent: :destroy
   
   validates :github_id, presence: true, uniqueness: true
-  validates :number, presence: true, uniqueness: true
+  validates :number, presence: true
   validates :title, presence: true
   validates :author, presence: true
   validates :state, presence: true

@@ -40,6 +40,7 @@ gem "octokit", "~> 9.0"
 
 # HTTP client
 gem "faraday", "~> 2.0"
+gem "faraday-retry"
 
 # Environment variables
 gem "dotenv-rails", "~> 3.0"

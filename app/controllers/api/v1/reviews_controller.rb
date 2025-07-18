@@ -4,8 +4,11 @@ class Api::V1::ReviewsController < ApplicationController
       # Fetch all open PRs from database
       pull_requests = PullRequest.open.includes(:check_runs).order(pr_updated_at: :desc)
       
-      # Always trigger background job to refresh data in real-time
-      FetchPullRequestDataJob.perform_later
+      # Check if a refresh is already in progress before triggering a new one
+      refresh_status = Rails.cache.read('refresh_status') || {}
+      unless refresh_status[:updating]
+        FetchPullRequestDataJob.perform_later
+      end
       
       # If no PRs in database, return empty response with message
       if pull_requests.empty?

@@ -1,7 +1,29 @@
 class FetchPullRequestDataJob < ApplicationJob
   queue_as :default
 
+  # Ensure only one instance of this job runs at a time
+  # This prevents duplicate records from concurrent job execution
   def perform
+    # Try to acquire a lock
+    lock_key = 'fetch_pull_request_data_job_lock'
+    lock_acquired = Rails.cache.write(lock_key, true, unless_exist: true, expires_in: 30.minutes)
+    
+    unless lock_acquired
+      Rails.logger.info "Another instance of FetchPullRequestDataJob is already running. Skipping."
+      return
+    end
+    
+    begin
+      perform_fetch
+    ensure
+      # Always release the lock when done
+      Rails.cache.delete(lock_key)
+    end
+  end
+  
+  private
+  
+  def perform_fetch
     Rails.logger.info "Starting to fetch pull request data..."
     
     # Set initial refresh status
@@ -31,49 +53,65 @@ class FetchPullRequestDataJob < ApplicationJob
       pull_requests.each_with_index do |pr, index|
         Rails.logger.info "Processing PR ##{pr.number}: #{pr.title} (#{index + 1}/#{pull_requests.count})"
         
-        # Find or create PR record
-        pr_record = PullRequest.find_or_initialize_by(github_id: pr.id)
-        
-        # Update PR basic info
-        pr_record.assign_attributes(
-          number: pr.number,
-          title: pr.title,
-          author: pr.user.login,
-          state: pr.state,
-          draft: pr.draft,
-          url: pr.html_url,
-          pr_created_at: pr.created_at,
-          pr_updated_at: pr.updated_at
-        )
-        
-        # Scrape CI checks
-        checks_data = scraper_service.scrape_pr_checks_detailed(pr.html_url)
-        
-        # Update PR with CI status
-        pr_record.assign_attributes(
-          ci_status: checks_data[:overall_status],
-          total_checks: checks_data[:total_checks],
-          successful_checks: checks_data[:successful_checks],
-          failed_checks: checks_data[:failed_checks]
-        )
-        
-        pr_record.save!
-        
-        # Clear existing check runs and create new ones
-        pr_record.check_runs.destroy_all
-        
-        checks_data[:checks].each do |check|
-          pr_record.check_runs.create!(
-            name: check[:name],
-            status: check[:status],
-            url: check[:url],
-            description: check[:description],
-            required: check[:required],
-            suite_name: check[:suite_name]
-          )
+        begin
+          # Use a transaction with a lock to handle concurrent updates
+          PullRequest.transaction do
+            # Try to find existing record with a lock
+            pr_record = PullRequest.where(github_id: pr.id).lock.first
+            
+            # If not found, create a new one
+            pr_record ||= PullRequest.new(github_id: pr.id)
+            
+            # Update PR basic info
+            pr_record.assign_attributes(
+              number: pr.number,
+              title: pr.title,
+              author: pr.user.login,
+              state: pr.state,
+              draft: pr.draft,
+              url: pr.html_url,
+              pr_created_at: pr.created_at,
+              pr_updated_at: pr.updated_at
+            )
+            
+            # Scrape CI checks
+            checks_data = scraper_service.scrape_pr_checks_detailed(pr.html_url)
+            
+            # Update PR with CI status
+            pr_record.assign_attributes(
+              ci_status: checks_data[:overall_status],
+              total_checks: checks_data[:total_checks],
+              successful_checks: checks_data[:successful_checks],
+              failed_checks: checks_data[:failed_checks]
+            )
+            
+            pr_record.save!
+            
+            # Clear existing check runs and create new ones
+            pr_record.check_runs.destroy_all
+            
+            checks_data[:checks].each do |check|
+              pr_record.check_runs.create!(
+                name: check[:name],
+                status: check[:status],
+                url: check[:url],
+                description: check[:description],
+                required: check[:required],
+                suite_name: check[:suite_name]
+              )
+            end
+            
+            Rails.logger.info "Successfully processed PR ##{pr.number} - Status: #{checks_data[:overall_status]}, Checks: #{checks_data[:total_checks]}"
+          end # end transaction
+        rescue ActiveRecord::RecordInvalid => e
+          Rails.logger.warn "Skipping PR ##{pr.number} due to validation error: #{e.message}"
+          # Skip this PR and continue with the next one
+          next
+        rescue ActiveRecord::RecordNotUnique => e
+          Rails.logger.warn "Skipping PR ##{pr.number} due to duplicate: #{e.message}"
+          # Skip this PR and continue with the next one
+          next
         end
-        
-        Rails.logger.info "Successfully processed PR ##{pr.number} - Status: #{checks_data[:overall_status]}, Checks: #{checks_data[:total_checks]}"
         
         # Atomically increment progress counter
         current_progress = Rails.cache.increment('refresh_progress_counter', 1) || 1

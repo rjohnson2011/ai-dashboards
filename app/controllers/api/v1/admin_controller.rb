@@ -46,6 +46,31 @@ module Api
           note: 'CI status will be updated in the background'
         }
       end
+      
+      def update_data
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        # Run the update synchronously
+        begin
+          service = GithubPullRequestService.new
+          service.fetch_and_update_pull_requests
+          
+          render json: { 
+            message: 'Data updated successfully',
+            pull_requests: PullRequest.count,
+            last_updated: Time.current
+          }
+        rescue => e
+          render json: { 
+            error: 'Failed to update data',
+            message: e.message 
+          }, status: :internal_server_error
+        end
+      end
     end
   end
 end

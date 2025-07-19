@@ -14,6 +14,7 @@ Rails.application.routes.draw do
       post 'reviews/refresh', to: 'reviews#refresh'
       get 'reviews/historical', to: 'reviews#historical'
       post 'admin/initialize_data', to: 'admin#initialize_data'
+      post 'admin/update_data', to: 'admin#update_data'
     end
   end
 

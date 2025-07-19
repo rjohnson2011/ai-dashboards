@@ -1,29 +1,8 @@
 # This configuration file will be evaluated by Puma. The top-level methods that
 # are invoked here are part of Puma's configuration DSL. For more information
 # about methods provided by the DSL, see https://puma.io/puma/Puma/DSL.html.
-#
-# Puma starts a configurable number of processes (workers) and each process
-# serves each request in a thread from an internal thread pool.
-#
-# You can control the number of workers using ENV["WEB_CONCURRENCY"]. You
-# should only set this value when you want to run 2 or more workers. The
-# default is already 1.
-#
-# The ideal number of threads per worker depends both on how much time the
-# application spends waiting for IO operations and on how much you wish to
-# prioritize throughput over latency.
-#
-# As a rule of thumb, increasing the number of threads will increase how much
-# traffic a given process can handle (throughput), but due to CRuby's
-# Global VM Lock (GVL) it has diminishing returns and will degrade the
-# response time (latency) of the application.
-#
-# The default is set to 3 threads as it's deemed a decent compromise between
-# throughput and latency for the average Rails application.
-#
-# Any libraries that use a connection pool or another resource pool should
-# be configured to provide at least as many connections as the number of
-# threads. This includes Active Record's `pool` parameter in `database.yml`.
+
+# Puma configuration
 threads_count = ENV.fetch("RAILS_MAX_THREADS", 3)
 threads threads_count, threads_count
 
@@ -46,39 +25,33 @@ workers ENV.fetch("WEB_CONCURRENCY") { 2 } if ENV["RAILS_ENV"] == "production"
 # Preload app for performance
 preload_app! if ENV["RAILS_ENV"] == "production"
 
-# Run background jobs in production
+# Simple background job runner for production
 on_worker_boot do
-  if ENV['RAILS_ENV'] == 'production'
+  if ENV['RAILS_ENV'] == 'production' && ENV['ADMIN_TOKEN'].present?
     Thread.new do
-      sleep 10 # Wait for Rails to fully initialize
-      Rails.logger.info "[BackgroundJobs] Starting background job scheduler in Puma worker"
+      sleep 30 # Wait for Rails to fully initialize
+      Rails.logger.info "[BackgroundJobs] Starting simple update scheduler"
       
       loop do
         begin
-          # Run every 15 minutes
-          Rails.logger.info "[BackgroundJobs] Running scheduled jobs at #{Time.current}"
+          Rails.logger.info "[BackgroundJobs] Running scheduled update at #{Time.current}"
           
-          # Fetch pull request data
-          FetchPullRequestDataJob.perform_later
-          Rails.logger.info "[BackgroundJobs] Scheduled FetchPullRequestDataJob"
+          # Make HTTP request to our own admin endpoint
+          uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/update_data")
+          http = Net::HTTP.new(uri.host, uri.port)
+          http.use_ssl = true
           
-          # Check if it's time for daily jobs (2 AM)
-          current_hour = Time.current.hour
-          if current_hour == 2
-            # Run daily jobs
-            CaptureDailySnapshotJob.perform_later
-            FetchBackendReviewGroupJob.perform_later
-            Rails.logger.info "[BackgroundJobs] Scheduled daily jobs"
-            
-            # Sleep for an hour to avoid running daily jobs multiple times
-            sleep(3600)
-          else
-            # Sleep for 15 minutes
-            sleep(900)
-          end
+          request = Net::HTTP::Post.new(uri)
+          request['Content-Type'] = 'application/json'
+          request.body = { token: ENV['ADMIN_TOKEN'] }.to_json
+          
+          response = http.request(request)
+          Rails.logger.info "[BackgroundJobs] Update response: #{response.code} - #{response.body}"
+          
+          # Sleep for 15 minutes
+          sleep(900)
         rescue => e
-          Rails.logger.error "[BackgroundJobs] Error in background job scheduler: #{e.message}"
-          Rails.logger.error e.backtrace.join("\n")
+          Rails.logger.error "[BackgroundJobs] Error in update scheduler: #{e.message}"
           sleep(60) # Sleep for a minute on error
         end
       end

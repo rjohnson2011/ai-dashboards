@@ -44,7 +44,7 @@ class Api::V1::ReviewsController < ApplicationController
           additions: nil, # Not scraped from web
           deletions: nil, # Not scraped from web
           changed_files: nil, # Not scraped from web
-          ci_status: pr.overall_status,
+          ci_status: pr.ci_status || 'pending',
           failing_checks: failing_checks,
           total_checks: pr.total_checks,
           successful_checks: pr.successful_checks,

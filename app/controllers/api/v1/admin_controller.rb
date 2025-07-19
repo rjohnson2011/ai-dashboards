@@ -313,6 +313,40 @@ module Api
         
         { updated_to_merged_or_closed: updated_count, deleted: deleted_count }
       end
+      
+      def webhook_events
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        events = WebhookEvent.recent.limit(100)
+        
+        # Get summary stats
+        stats = {
+          total_events_24h: WebhookEvent.where('created_at > ?', 24.hours.ago).count,
+          failed_events_24h: WebhookEvent.failed.where('created_at > ?', 24.hours.ago).count,
+          events_by_type: WebhookEvent.where('created_at > ?', 24.hours.ago).group(:event_type).count
+        }
+        
+        render json: {
+          stats: stats,
+          recent_events: events.map do |event|
+            {
+              id: event.id,
+              event_type: event.event_type,
+              github_delivery_id: event.github_delivery_id,
+              status: event.status,
+              error_message: event.error_message,
+              pull_request_number: event.pull_request_number,
+              created_at: event.created_at,
+              processed_at: event.processed_at,
+              processing_time: event.processed_at ? (event.processed_at - event.created_at).round(2) : nil
+            }
+          end
+        }
+      end
     end
   end
 end

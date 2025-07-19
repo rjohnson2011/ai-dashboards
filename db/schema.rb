@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_07_19_043252) do
+ActiveRecord::Schema[8.0].define(version: 2025_07_19_123953) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -86,8 +86,21 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_19_043252) do
     t.string "backend_approval_status", default: "not_approved"
     t.boolean "ready_for_backend_review", default: false
     t.datetime "approved_at"
+    t.string "head_sha"
     t.index ["backend_approval_status"], name: "index_pull_requests_on_backend_approval_status"
     t.index ["github_id"], name: "index_pull_requests_on_github_id", unique: true
+    t.index ["head_sha"], name: "index_pull_requests_on_head_sha"
+  end
+
+  create_table "webhook_events", force: :cascade do |t|
+    t.string "event_type"
+    t.string "github_delivery_id"
+    t.text "payload"
+    t.string "status"
+    t.text "error_message"
+    t.datetime "processed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
   end
 
   add_foreign_key "check_runs", "pull_requests"

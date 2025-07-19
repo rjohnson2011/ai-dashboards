@@ -19,6 +19,10 @@ Rails.application.routes.draw do
       post 'admin/cleanup_merged_prs', to: 'admin#cleanup_merged_prs'
       post 'admin/update_checks_via_api', to: 'admin#update_checks_via_api'
       get 'admin/background_job_logs', to: 'admin#background_job_logs'
+      get 'admin/webhook_events', to: 'admin#webhook_events'
+      
+      # GitHub webhook endpoint
+      post 'github_webhooks', to: 'github_webhooks#create'
     end
   end
 

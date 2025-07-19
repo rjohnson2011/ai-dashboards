@@ -101,7 +101,7 @@ begin
     pr = PullRequest.find_or_initialize_by(number: pr_data.number)
     is_new = pr.new_record?
     
-    pr.update!(
+    update_attrs = {
       github_id: pr_data.id,
       title: pr_data.title,
       author: pr_data.user.login,
@@ -109,9 +109,15 @@ begin
       url: pr_data.html_url,
       pr_created_at: pr_data.created_at,
       pr_updated_at: pr_data.updated_at,
-      draft: pr_data.draft || false,
-      head_sha: pr_data.head.sha
-    )
+      draft: pr_data.draft || false
+    }
+    
+    # Only add head_sha if column exists (for migration compatibility)
+    if pr.has_attribute?(:head_sha)
+      update_attrs[:head_sha] = pr_data.head.sha
+    end
+    
+    pr.update!(update_attrs)
     
     is_new ? new_count += 1 : updated_count += 1
   end

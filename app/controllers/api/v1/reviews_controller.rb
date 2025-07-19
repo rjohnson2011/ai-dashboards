@@ -1,16 +1,21 @@
 class Api::V1::ReviewsController < ApplicationController
   def index
     begin
-      # Fetch all open PRs from database
-      pull_requests = PullRequest.open.includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
+      # Fetch open PRs that do NOT have backend approval
+      open_pull_requests = PullRequest.open.where(backend_approval_status: 'not_approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
+      
+      # Fetch backend approved PRs separately
+      approved_pull_requests = PullRequest.open.where(backend_approval_status: 'approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
       # Don't trigger job on page load anymore - handled by cron
       
       # If no PRs in database, return empty response with message
-      if pull_requests.empty?
+      if open_pull_requests.empty? && approved_pull_requests.empty?
         return render json: { 
           pull_requests: [],
+          approved_pull_requests: [],
           count: 0,
+          approved_count: 0,
           repository: "#{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}",
           message: "Data is being refreshed. Please check back in a few minutes.",
           last_updated: nil,
@@ -18,8 +23,8 @@ class Api::V1::ReviewsController < ApplicationController
         }
       end
       
-      # Format PR data
-      pr_data = pull_requests.map do |pr|
+      # Format PR data helper
+      format_pr = lambda do |pr|
         failing_checks = pr.check_runs.failed.deduplicate_by_suite.map do |check|
           {
             name: check.suite_name || check.name,
@@ -55,16 +60,22 @@ class Api::V1::ReviewsController < ApplicationController
         }
       end
       
+      # Format both sets of PRs
+      open_pr_data = open_pull_requests.map(&format_pr)
+      approved_pr_data = approved_pull_requests.map(&format_pr)
+      
       # Get rate limit info
       github_service = GithubService.new
       rate_limit_info = github_service.rate_limit rescue nil
       
       # Get the actual refresh completion time
-      last_refresh_time = Rails.cache.read('last_refresh_time') || pull_requests.maximum(:updated_at)
+      last_refresh_time = Rails.cache.read('last_refresh_time') || PullRequest.maximum(:updated_at)
       
       render json: { 
-        pull_requests: pr_data,
-        count: pr_data.length,
+        pull_requests: open_pr_data,
+        approved_pull_requests: approved_pr_data,
+        count: open_pr_data.length,
+        approved_count: approved_pr_data.length,
         repository: "#{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}",
         last_updated: last_refresh_time,
         updating: true,

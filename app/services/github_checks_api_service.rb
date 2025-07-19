@@ -115,6 +115,9 @@ class GithubChecksApiService
     # Update ready for backend review status
     pr.update_ready_for_backend_review!
     
+    # Update approval status (sets approved_at if all checks passing)
+    pr.update_approval_status!
+    
     Rails.logger.info "[GithubChecksAPI] Successfully updated PR ##{pr_number}"
     true
   end

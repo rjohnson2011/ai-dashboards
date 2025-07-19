@@ -13,6 +13,8 @@ class PullRequest < ApplicationRecord
   scope :closed, -> { where(state: 'closed') }
   scope :draft, -> { where(draft: true) }
   scope :ready, -> { where(draft: false) }
+  scope :approved, -> { where.not(approved_at: nil) }
+  scope :not_approved, -> { where(approved_at: nil) }
   
   def failing_checks
     check_runs.where(status: ['failure', 'error', 'cancelled'])
@@ -97,6 +99,46 @@ class PullRequest < ApplicationRecord
   def update_ready_for_backend_review!
     self.ready_for_backend_review = calculate_ready_for_backend_review
     save!
+  end
+  
+  def fully_approved?
+    # A PR is fully approved when EITHER:
+    # 1. All checks are passing (no failures)
+    # 2. Has backend approval and only 1 failing check (assumed to be the backend check itself)
+    # AND is not a draft and is open
+    
+    return false unless state == 'open' && !draft && total_checks > 0
+    
+    if failed_checks == 0
+      true
+    elsif backend_approval_status == 'approved' && failed_checks == 1
+      # Check if the only failing check is the backend approval check
+      failing_checks = Rails.cache.read("pr_#{id}_failing_checks") || []
+      if failing_checks.length == 1
+        check_name = failing_checks.first[:name].to_s.downcase
+        check_name.include?('backend') && check_name.include?('approval')
+      else
+        # If we don't have cache data but have backend approval and 1 failure, assume it's approved
+        true
+      end
+    else
+      false
+    end
+  end
+  
+  def update_approval_status!
+    # Update approved_at timestamp based on current status
+    if fully_approved? && approved_at.nil?
+      # Just became fully approved
+      self.approved_at = Time.current
+      save!
+      Rails.logger.info "[PullRequest] PR ##{number} is now fully approved"
+    elsif !fully_approved? && approved_at.present?
+      # Was approved but now has failures
+      self.approved_at = nil
+      save!
+      Rails.logger.info "[PullRequest] PR ##{number} is no longer fully approved"
+    end
   end
   
   def approval_summary

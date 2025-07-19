@@ -65,6 +65,14 @@ class GithubChecksApiService
       failing_checks: failing_checks,
       check_runs: check_runs
     }
+  rescue Octokit::TooManyRequests => e
+    Rails.logger.warn "[GithubChecksAPI] Rate limited for PR ##{pr_number}. Waiting 60 seconds..."
+    sleep(60) # Wait a minute before retrying
+    retry
+  rescue Octokit::AbuseDetected => e
+    Rails.logger.warn "[GithubChecksAPI] Abuse detection triggered for PR ##{pr_number}. Waiting 5 minutes..."
+    sleep(300) # Wait 5 minutes as recommended
+    retry
   rescue => e
     Rails.logger.error "[GithubChecksAPI] Error fetching checks for PR ##{pr_number}: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
@@ -112,7 +120,25 @@ class GithubChecksApiService
     updated_count = 0
     error_count = 0
     
-    PullRequest.where(state: 'open').find_each do |pr|
+    # Check rate limit before starting
+    begin
+      rate_limit = @client.rate_limit
+      if rate_limit.remaining < 100
+        wait_time = (rate_limit.resets_at - Time.now).to_i
+        Rails.logger.warn "[GithubChecksAPI] Rate limit low (#{rate_limit.remaining} remaining). Waiting #{wait_time} seconds..."
+        sleep(wait_time + 10) if wait_time > 0
+      end
+    rescue => e
+      Rails.logger.warn "[GithubChecksAPI] Could not check rate limit: #{e.message}"
+    end
+    
+    PullRequest.where(state: 'open').find_each.with_index do |pr, index|
+      # Add longer delay every 10 PRs to avoid abuse detection
+      if index > 0 && index % 10 == 0
+        Rails.logger.info "[GithubChecksAPI] Pausing for 30 seconds after #{index} PRs to avoid rate limits..."
+        sleep(30)
+      end
+      
       if update_pr_with_checks(pr.number)
         updated_count += 1
       else
@@ -120,7 +146,8 @@ class GithubChecksApiService
       end
       
       # Rate limit awareness - GitHub allows 5000 requests per hour
-      sleep(0.5) # Small delay to avoid hitting rate limits
+      # Increase delay to avoid abuse detection
+      sleep(2) # 2 second delay between PRs to avoid rate limits
     end
     
     Rails.logger.info "[GithubChecksAPI] Updated #{updated_count} PRs, #{error_count} errors"

@@ -20,6 +20,7 @@ Rails.application.routes.draw do
       post 'admin/update_checks_via_api', to: 'admin#update_checks_via_api'
       get 'admin/background_job_logs', to: 'admin#background_job_logs'
       get 'admin/webhook_events', to: 'admin#webhook_events'
+      get 'admin/debug_token', to: 'admin#debug_token'
       
       # GitHub webhook endpoint
       post 'github_webhooks', to: 'github_webhooks#create'

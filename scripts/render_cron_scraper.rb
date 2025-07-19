@@ -18,6 +18,14 @@ logger.info "Job ID: #{ENV['RENDER_INSTANCE_ID']}"
 logger.info "Service: #{ENV['RENDER_SERVICE_NAME']}"
 logger.info "Repository: #{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}"
 
+# Validate GitHub token
+if ENV['GITHUB_TOKEN'].blank?
+  logger.error "GITHUB_TOKEN environment variable is not set!"
+  exit 1
+end
+
+logger.info "GitHub token present: Yes (#{ENV['GITHUB_TOKEN'].length} chars)"
+
 begin
   # Test database connection
   ActiveRecord::Base.connection.execute("SELECT 1")

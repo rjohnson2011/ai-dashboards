@@ -347,6 +347,54 @@ module Api
           end
         }
       end
+      
+      def debug_token
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        debug_info = {
+          environment: ENV['RAILS_ENV'],
+          github_token_present: ENV['GITHUB_TOKEN'].present?,
+          github_token_length: ENV['GITHUB_TOKEN']&.length || 0,
+          github_owner: ENV['GITHUB_OWNER'],
+          github_repo: ENV['GITHUB_REPO']
+        }
+        
+        if ENV['GITHUB_TOKEN'].present?
+          begin
+            client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'])
+            user = client.user
+            rate_limit = client.rate_limit
+            
+            debug_info[:authentication] = {
+              valid: true,
+              user: user.login,
+              rate_limit: {
+                limit: rate_limit.limit,
+                remaining: rate_limit.remaining,
+                resets_at: rate_limit.resets_at
+              }
+            }
+          rescue Octokit::Unauthorized => e
+            debug_info[:authentication] = {
+              valid: false,
+              error: "Invalid token: #{e.message}"
+            }
+          rescue => e
+            debug_info[:authentication] = {
+              valid: false,
+              error: e.message
+            }
+          end
+        else
+          debug_info[:error] = "GITHUB_TOKEN not set"
+        end
+        
+        render json: debug_info
+      end
     end
   end
 end

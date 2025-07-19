@@ -50,7 +50,8 @@ class Api::V1::ReviewsController < ApplicationController
           successful_checks: pr.successful_checks,
           failed_checks: pr.failed_checks,
           backend_approval_status: pr.backend_approval_status,
-          approval_summary: pr.approval_summary
+          approval_summary: pr.approval_summary,
+          ready_for_backend_review: pr.ready_for_backend_review
         }
       end
       

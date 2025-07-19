@@ -61,6 +61,44 @@ class PullRequest < ApplicationRecord
     save!
   end
   
+  def calculate_ready_for_backend_review
+    # PR is ready for backend review if:
+    # 1. All CI checks are passing (or only backend review check is failing)
+    # 2. Has at least one approval from a non-backend reviewer
+    
+    # Check if we have failing checks (excluding backend review check)
+    non_backend_failing_checks = if failed_checks > 0
+      # Look for failing checks that are NOT the backend review check
+      # Using the check data from cache if available
+      failing_check_details = Rails.cache.read("pr_#{id}_failing_checks") || []
+      failing_check_details.reject { |check| 
+        check[:name]&.downcase&.include?('backend') && 
+        check[:name]&.downcase&.include?('approval')
+      }.any?
+    else
+      false
+    end
+    
+    # If there are non-backend failing checks, not ready
+    return false if non_backend_failing_checks
+    
+    # Check if we have approvals from non-backend reviewers
+    approved_users = pull_request_reviews
+      .where(state: PullRequestReview::APPROVED)
+      .pluck(:user)
+    
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    non_backend_approvals = approved_users - backend_members
+    
+    # Ready if we have at least one non-backend approval
+    non_backend_approvals.any?
+  end
+  
+  def update_ready_for_backend_review!
+    self.ready_for_backend_review = calculate_ready_for_backend_review
+    save!
+  end
+  
   def approval_summary
     # Get the latest review from each user
     reviews_by_user = pull_request_reviews.group_by(&:user)

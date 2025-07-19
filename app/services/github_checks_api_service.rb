@@ -112,6 +112,9 @@ class GithubChecksApiService
       failing_checks: check_data[:failing_checks]
     }, expires_in: 1.hour)
     
+    # Update ready for backend review status
+    pr.update_ready_for_backend_review!
+    
     Rails.logger.info "[GithubChecksAPI] Successfully updated PR ##{pr_number}"
     true
   end

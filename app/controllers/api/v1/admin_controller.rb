@@ -107,43 +107,6 @@ module Api
         end
       end
       
-      private
-      
-      def cleanup_merged_prs_internal
-        github_token = ENV['GITHUB_TOKEN']
-        owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
-        repo = ENV['GITHUB_REPO'] || 'vets-api'
-        client = Octokit::Client.new(access_token: github_token)
-        
-        updated_count = 0
-        deleted_count = 0
-        
-        # Check all "open" PRs to see if they're actually closed/merged
-        PullRequest.where(state: 'open').find_each do |pr|
-          begin
-            github_pr = client.pull_request("#{owner}/#{repo}", pr.number)
-            
-            if github_pr.state == 'closed'
-              if github_pr.merged
-                pr.update!(state: 'merged')
-                updated_count += 1
-              else
-                pr.update!(state: 'closed')
-                updated_count += 1
-              end
-            end
-          rescue Octokit::NotFound
-            # PR was deleted
-            pr.destroy
-            deleted_count += 1
-          rescue => e
-            Rails.logger.error "Error checking PR ##{pr.number}: #{e.message}"
-          end
-        end
-        
-        { updated_to_merged_or_closed: updated_count, deleted: deleted_count }
-      end
-      
       def update_full_data
         # Simple auth check
         unless params[:token] == ENV['ADMIN_TOKEN']
@@ -312,6 +275,43 @@ module Api
             current_time: Time.current
           }
         end
+      end
+      
+      private
+      
+      def cleanup_merged_prs_internal
+        github_token = ENV['GITHUB_TOKEN']
+        owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
+        repo = ENV['GITHUB_REPO'] || 'vets-api'
+        client = Octokit::Client.new(access_token: github_token)
+        
+        updated_count = 0
+        deleted_count = 0
+        
+        # Check all "open" PRs to see if they're actually closed/merged
+        PullRequest.where(state: 'open').find_each do |pr|
+          begin
+            github_pr = client.pull_request("#{owner}/#{repo}", pr.number)
+            
+            if github_pr.state == 'closed'
+              if github_pr.merged
+                pr.update!(state: 'merged')
+                updated_count += 1
+              else
+                pr.update!(state: 'closed')
+                updated_count += 1
+              end
+            end
+          rescue Octokit::NotFound
+            # PR was deleted
+            pr.destroy
+            deleted_count += 1
+          rescue => e
+            Rails.logger.error "Error checking PR ##{pr.number}: #{e.message}"
+          end
+        end
+        
+        { updated_to_merged_or_closed: updated_count, deleted: deleted_count }
       end
     end
   end

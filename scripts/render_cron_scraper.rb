@@ -24,7 +24,20 @@ if ENV['GITHUB_TOKEN'].blank?
   exit 1
 end
 
-logger.info "GitHub token present: Yes (#{ENV['GITHUB_TOKEN'].length} chars)"
+# Debug token (safely log first/last few chars)
+token = ENV['GITHUB_TOKEN']
+logger.info "GitHub token present: Yes (#{token.length} chars)"
+logger.info "Token format: #{token[0..3]}...#{token[-4..-1]}"
+logger.info "Token starts with ghp_? #{token.start_with?('ghp_')}"
+logger.info "Token starts with github_pat_? #{token.start_with?('github_pat_')}"
+
+# Check for common issues
+if token.include?('"') || token.include?("'")
+  logger.error "WARNING: Token contains quotes!"
+end
+if token != token.strip
+  logger.error "WARNING: Token has leading/trailing whitespace!"
+end
 
 begin
   # Test database connection
@@ -40,13 +53,42 @@ begin
     logger.warn "Could not determine IP: #{e.message}"
   end
   
-  # Initialize services
-  github_service = GithubService.new
-  scraper_service = EnhancedGithubScraperService.new
+  # Initialize services with detailed error handling
+  begin
+    logger.info "Creating GitHub client..."
+    github_service = GithubService.new
+    logger.info "GitHub client created successfully"
+    
+    scraper_service = EnhancedGithubScraperService.new
+  rescue => e
+    logger.error "Failed to create GitHub service: #{e.class} - #{e.message}"
+    logger.error "This usually means the token is invalid or malformed"
+    exit 1
+  end
   
   # Check rate limit before starting
-  rate_limit = github_service.rate_limit
-  logger.info "GitHub API rate limit: #{rate_limit.remaining}/#{rate_limit.limit}"
+  begin
+    logger.info "Checking rate limit..."
+    rate_limit = github_service.rate_limit
+    logger.info "GitHub API rate limit: #{rate_limit.remaining}/#{rate_limit.limit}"
+  rescue Octokit::Unauthorized => e
+    logger.error "GitHub authentication failed: #{e.message}"
+    logger.error "Token appears to be invalid or expired"
+    
+    # Try a raw API call to debug
+    require 'net/http'
+    uri = URI('https://api.github.com/rate_limit')
+    req = Net::HTTP::Get.new(uri)
+    req['Authorization'] = "token #{ENV['GITHUB_TOKEN']}"
+    
+    res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+      http.request(req)
+    end
+    
+    logger.error "Raw API response: #{res.code} - #{res.message}"
+    logger.error "Response body: #{res.body[0..200]}..." if res.body
+    exit 1
+  end
   
   if rate_limit.remaining < 100
     logger.error "Low API rate limit (#{rate_limit.remaining}), exiting"

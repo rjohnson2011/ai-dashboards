@@ -39,3 +39,49 @@ plugin :solid_queue if ENV["SOLID_QUEUE_IN_PUMA"]
 # Specify the PID file. Defaults to tmp/pids/server.pid in development.
 # In other environments, only set the PID file if requested.
 pidfile ENV["PIDFILE"] if ENV["PIDFILE"]
+
+# Workers for production
+workers ENV.fetch("WEB_CONCURRENCY") { 2 } if ENV["RAILS_ENV"] == "production"
+
+# Preload app for performance
+preload_app! if ENV["RAILS_ENV"] == "production"
+
+# Run background jobs in production
+on_worker_boot do
+  if ENV['RAILS_ENV'] == 'production'
+    Thread.new do
+      sleep 10 # Wait for Rails to fully initialize
+      Rails.logger.info "[BackgroundJobs] Starting background job scheduler in Puma worker"
+      
+      loop do
+        begin
+          # Run every 15 minutes
+          Rails.logger.info "[BackgroundJobs] Running scheduled jobs at #{Time.current}"
+          
+          # Fetch pull request data
+          FetchPullRequestDataJob.perform_later
+          Rails.logger.info "[BackgroundJobs] Scheduled FetchPullRequestDataJob"
+          
+          # Check if it's time for daily jobs (2 AM)
+          current_hour = Time.current.hour
+          if current_hour == 2
+            # Run daily jobs
+            CaptureDailySnapshotJob.perform_later
+            FetchBackendReviewGroupJob.perform_later
+            Rails.logger.info "[BackgroundJobs] Scheduled daily jobs"
+            
+            # Sleep for an hour to avoid running daily jobs multiple times
+            sleep(3600)
+          else
+            # Sleep for 15 minutes
+            sleep(900)
+          end
+        rescue => e
+          Rails.logger.error "[BackgroundJobs] Error in background job scheduler: #{e.message}"
+          Rails.logger.error e.backtrace.join("\n")
+          sleep(60) # Sleep for a minute on error
+        end
+      end
+    end
+  end
+end

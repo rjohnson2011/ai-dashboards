@@ -2,7 +2,8 @@
 # This runs within the web service process
 
 Rails.application.config.after_initialize do
-  if defined?(Rails::Server) && Rails.env.production?
+  if Rails.env.production? || Rails.env.development?
+    Rails.logger.info "[BackgroundJobs] Initializing background job scheduler"
     Thread.new do
       loop do
         begin

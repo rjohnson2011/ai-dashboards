@@ -71,6 +71,71 @@ module Api
           }, status: :internal_server_error
         end
       end
+      
+      def update_full_data
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        updated_count = 0
+        errors = []
+        
+        PullRequest.find_each do |pr|
+          begin
+            # Fetch CI checks
+            scraper = EnhancedGithubScraperService.new
+            check_data = scraper.scrape_pr_checks_detailed(pr.url)
+            
+            # Update PR with check data
+            pr.update!(
+              ci_status: check_data[:overall_status] || 'pending',
+              total_checks: check_data[:total_checks] || 0,
+              successful_checks: check_data[:successful_checks] || 0,
+              failed_checks: check_data[:failed_checks] || 0
+            )
+            
+            # Store failing checks in Rails cache
+            if check_data[:checks] && check_data[:checks].any? { |c| c[:status] == 'failure' }
+              failing_checks = check_data[:checks].select { |c| c[:status] == 'failure' }
+              Rails.cache.write("pr_#{pr.id}_failing_checks", failing_checks, expires_in: 1.hour)
+            end
+            
+            # Fetch reviews
+            github_token = ENV['GITHUB_TOKEN']
+            owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
+            repo = ENV['GITHUB_REPO'] || 'vets-api'
+            client = Octokit::Client.new(access_token: github_token)
+            
+            reviews = client.pull_request_reviews("#{owner}/#{repo}", pr.number)
+            reviews.each do |review_data|
+              PullRequestReview.find_or_create_by(
+                pull_request_id: pr.id,
+                github_id: review_data[:id]
+              ).update!(
+                user: review_data[:user][:login],
+                state: review_data[:state],
+                submitted_at: review_data[:submitted_at]
+              )
+            end
+            
+            # Update backend approval
+            pr.update_backend_approval_status!
+            
+            updated_count += 1
+          rescue => e
+            errors << "PR ##{pr.number}: #{e.message}"
+          end
+        end
+        
+        render json: { 
+          message: 'Full data update completed',
+          updated_count: updated_count,
+          total_prs: PullRequest.count,
+          errors: errors.take(10) # Only show first 10 errors
+        }
+      end
     end
   end
 end

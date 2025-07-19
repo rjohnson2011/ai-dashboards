@@ -24,20 +24,10 @@ if ENV['GITHUB_TOKEN'].blank?
   exit 1
 end
 
-# Debug token (safely log first/last few chars)
+# Validate token format
 token = ENV['GITHUB_TOKEN']
 logger.info "GitHub token present: Yes (#{token.length} chars)"
-logger.info "Token format: #{token[0..3]}...#{token[-4..-1]}"
-logger.info "Token starts with ghp_? #{token.start_with?('ghp_')}"
-logger.info "Token starts with github_pat_? #{token.start_with?('github_pat_')}"
-
-# Check for common issues
-if token.include?('"') || token.include?("'")
-  logger.error "WARNING: Token contains quotes!"
-end
-if token != token.strip
-  logger.error "WARNING: Token has leading/trailing whitespace!"
-end
+logger.info "Token format valid: #{token.start_with?('ghp_') || token.start_with?('github_pat_')}"
 
 begin
   # Test database connection

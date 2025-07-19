@@ -234,6 +234,40 @@ class EnhancedGithubScraperService
           overall_status: 'pending'
         }
       end
+      
+      # Pattern for complex: "X failing, Y skipped, Z expected, W successful checks"
+      if match = elem_text.match(/(\d+)\s+failing,\s+(\d+)\s+skipped,\s+(\d+)\s+expected,\s+(\d+)\s+successful\s+checks?/i)
+        failed = match[1].to_i
+        skipped = match[2].to_i
+        expected = match[3].to_i
+        successful = match[4].to_i
+        total = failed + skipped + expected + successful
+        Rails.logger.info "Found complex: #{failed} failing, #{skipped} skipped, #{expected} expected, #{successful} successful"
+        return {
+          failed: failed,
+          successful: successful,
+          pending: expected,
+          skipped: skipped,
+          total: total,
+          overall_status: 'failure'
+        }
+      end
+      
+      # Pattern for failing + skipped: "X failing, Y skipped, Z successful checks"
+      if match = elem_text.match(/(\d+)\s+failing,\s+(\d+)\s+skipped,\s+(\d+)\s+successful\s+checks?/i)
+        failed = match[1].to_i
+        skipped = match[2].to_i
+        successful = match[3].to_i
+        total = failed + skipped + successful
+        Rails.logger.info "Found with skipped: #{failed} failing, #{skipped} skipped, #{successful} successful"
+        return {
+          failed: failed,
+          successful: successful,
+          skipped: skipped,
+          total: total,
+          overall_status: 'failure'
+        }
+      end
     end
     
     # Fallback to checking in merge box section area

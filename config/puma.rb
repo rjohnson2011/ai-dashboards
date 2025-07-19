@@ -36,7 +36,7 @@ on_worker_boot do
         begin
           Rails.logger.info "[BackgroundJobs] Running scheduled update at #{Time.current}"
           
-          # Make HTTP request to our own admin endpoint
+          # Update PR data
           uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/update_data")
           http = Net::HTTP.new(uri.host, uri.port)
           http.use_ssl = true
@@ -47,6 +47,16 @@ on_worker_boot do
           
           response = http.request(request)
           Rails.logger.info "[BackgroundJobs] Update response: #{response.code} - #{response.body}"
+          
+          # Clean up merged/closed PRs
+          Rails.logger.info "[BackgroundJobs] Running cleanup of merged PRs..."
+          cleanup_uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/cleanup_merged_prs")
+          cleanup_request = Net::HTTP::Post.new(cleanup_uri)
+          cleanup_request['Content-Type'] = 'application/json'
+          cleanup_request.body = { token: ENV['ADMIN_TOKEN'] }.to_json
+          
+          cleanup_response = http.request(cleanup_request)
+          Rails.logger.info "[BackgroundJobs] Cleanup response: #{cleanup_response.code} - #{cleanup_response.body}"
           
           # Sleep for 15 minutes
           sleep(900)

@@ -30,11 +30,23 @@ on_worker_boot do
   if ENV['RAILS_ENV'] == 'production' && ENV['ADMIN_TOKEN'].present?
     Thread.new do
       sleep 30 # Wait for Rails to fully initialize
-      Rails.logger.info "[BackgroundJobs] Starting simple update scheduler"
+      Rails.logger.info "[BackgroundJobs] Starting simple update scheduler at #{Time.current}"
+      Rails.logger.info "[BackgroundJobs] Will run every 15 minutes"
+      
+      # Log to a file as well for persistence
+      File.open('/tmp/background_jobs.log', 'a') do |f|
+        f.puts "[#{Time.current}] Background job scheduler started"
+      end
       
       loop do
         begin
-          Rails.logger.info "[BackgroundJobs] Running scheduled update at #{Time.current}"
+          start_time = Time.current
+          Rails.logger.info "[BackgroundJobs] === Starting scheduled update cycle at #{start_time} ==="
+          
+          # Log to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{start_time}] Starting update cycle"
+          end
           
           # Update PR data
           uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/update_data")
@@ -46,7 +58,12 @@ on_worker_boot do
           request.body = { token: ENV['ADMIN_TOKEN'] }.to_json
           
           response = http.request(request)
-          Rails.logger.info "[BackgroundJobs] Update response: #{response.code} - #{response.body}"
+          Rails.logger.info "[BackgroundJobs] Update data response: #{response.code} - #{response.body}"
+          
+          # Log to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{Time.current}] Update data response: #{response.code}"
+          end
           
           # Clean up merged/closed PRs
           Rails.logger.info "[BackgroundJobs] Running cleanup of merged PRs..."
@@ -58,6 +75,11 @@ on_worker_boot do
           cleanup_response = http.request(cleanup_request)
           Rails.logger.info "[BackgroundJobs] Cleanup response: #{cleanup_response.code} - #{cleanup_response.body}"
           
+          # Log to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{Time.current}] Cleanup response: #{cleanup_response.code}"
+          end
+          
           # Update checks via GitHub API
           Rails.logger.info "[BackgroundJobs] Updating PR checks via GitHub API..."
           checks_uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/update_checks_via_api")
@@ -68,10 +90,34 @@ on_worker_boot do
           checks_response = http.request(checks_request)
           Rails.logger.info "[BackgroundJobs] Checks update response: #{checks_response.code} - #{checks_response.body}"
           
+          # Log to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{Time.current}] Checks update response: #{checks_response.code}"
+          end
+          
+          end_time = Time.current
+          duration = (end_time - start_time).round(2)
+          Rails.logger.info "[BackgroundJobs] === Update cycle completed in #{duration} seconds ==="
+          Rails.logger.info "[BackgroundJobs] Next update will run at #{end_time + 900}"
+          
+          # Log completion to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{end_time}] Update cycle completed in #{duration}s. Next run at #{end_time + 900}"
+            f.puts "----------------------------------------"
+          end
+          
           # Sleep for 15 minutes
           sleep(900)
         rescue => e
           Rails.logger.error "[BackgroundJobs] Error in update scheduler: #{e.message}"
+          Rails.logger.error "[BackgroundJobs] Backtrace: #{e.backtrace.first(5).join("\n")}"
+          
+          # Log error to file
+          File.open('/tmp/background_jobs.log', 'a') do |f|
+            f.puts "[#{Time.current}] ERROR: #{e.message}"
+            f.puts "----------------------------------------"
+          end
+          
           sleep(60) # Sleep for a minute on error
         end
       end

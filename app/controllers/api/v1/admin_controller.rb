@@ -288,6 +288,31 @@ module Api
           }
         end
       end
+      
+      def background_job_logs
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        log_file = '/tmp/background_jobs.log'
+        if File.exist?(log_file)
+          logs = File.read(log_file).split("\n").last(50) # Last 50 lines
+          render json: {
+            logs: logs,
+            file_size: File.size(log_file),
+            last_modified: File.mtime(log_file),
+            current_time: Time.current
+          }
+        else
+          render json: {
+            error: 'Log file not found',
+            message: 'Background jobs may not have started yet',
+            current_time: Time.current
+          }
+        end
+      end
     end
   end
 end

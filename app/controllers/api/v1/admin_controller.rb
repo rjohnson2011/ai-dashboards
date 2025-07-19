@@ -254,6 +254,40 @@ module Api
           remaining_open: PullRequest.where(state: 'open').count
         }
       end
+      
+      def update_checks_via_api
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        # Use GitHub API to get accurate check data
+        checks_service = GithubChecksApiService.new
+        
+        if params[:pr_number]
+          # Update single PR
+          success = checks_service.update_pr_with_checks(params[:pr_number].to_i)
+          pr = PullRequest.find_by(number: params[:pr_number])
+          
+          render json: {
+            message: success ? 'PR checks updated successfully' : 'Failed to update PR checks',
+            pr_number: params[:pr_number],
+            total_checks: pr&.total_checks,
+            successful_checks: pr&.successful_checks,
+            failed_checks: pr&.failed_checks,
+            ci_status: pr&.ci_status
+          }
+        else
+          # Update all PRs
+          result = checks_service.update_all_prs_with_checks
+          render json: {
+            message: 'All PR checks updated',
+            updated: result[:updated],
+            errors: result[:errors]
+          }
+        end
+      end
     end
   end
 end

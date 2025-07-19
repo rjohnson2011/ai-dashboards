@@ -51,6 +51,8 @@ gem "dotenv-rails", "~> 3.0"
 # Web scraping
 gem "nokogiri", "~> 1.16"
 gem "httparty", "~> 0.22"
+gem "selenium-webdriver", "~> 4.0"
+gem "webdrivers", "~> 5.0"
 
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem

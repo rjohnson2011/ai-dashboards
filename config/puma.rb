@@ -58,6 +58,16 @@ on_worker_boot do
           cleanup_response = http.request(cleanup_request)
           Rails.logger.info "[BackgroundJobs] Cleanup response: #{cleanup_response.code} - #{cleanup_response.body}"
           
+          # Update checks via GitHub API
+          Rails.logger.info "[BackgroundJobs] Updating PR checks via GitHub API..."
+          checks_uri = URI("https://ai-dashboards.onrender.com/api/v1/admin/update_checks_via_api")
+          checks_request = Net::HTTP::Post.new(checks_uri)
+          checks_request['Content-Type'] = 'application/json'
+          checks_request.body = { token: ENV['ADMIN_TOKEN'] }.to_json
+          
+          checks_response = http.request(checks_request)
+          Rails.logger.info "[BackgroundJobs] Checks update response: #{checks_response.code} - #{checks_response.body}"
+          
           # Sleep for 15 minutes
           sleep(900)
         rescue => e

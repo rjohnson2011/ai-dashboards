@@ -17,6 +17,7 @@ Rails.application.routes.draw do
       post 'admin/update_data', to: 'admin#update_data'
       post 'admin/update_full_data', to: 'admin#update_full_data'
       post 'admin/cleanup_merged_prs', to: 'admin#cleanup_merged_prs'
+      post 'admin/update_checks_via_api', to: 'admin#update_checks_via_api'
     end
   end
 

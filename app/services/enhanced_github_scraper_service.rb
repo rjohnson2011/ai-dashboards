@@ -80,9 +80,16 @@ class EnhancedGithubScraperService
             suite_name: "All Checks"
           }]
         end
+      elsif summary_counts
+        # Use summary counts from the page if available
+        Rails.logger.info "Using summary counts from page: #{summary_counts[:failed]} failing, #{summary_counts[:successful]} successful"
+        overall_status = summary_counts[:overall_status]
+        total = summary_counts[:total]
+        successful = summary_counts[:successful]
+        failed = summary_counts[:failed]
       else
         # Otherwise, calculate from individual checks
-        Rails.logger.info "No API counts, calculating from #{unique_checks.count} individual checks"
+        Rails.logger.info "No API or summary counts, calculating from #{unique_checks.count} individual checks"
         overall_status = determine_overall_status(unique_checks)
         total = unique_checks.count
         successful = unique_checks.count { |c| c[:status] == 'success' }
@@ -107,6 +114,9 @@ class EnhancedGithubScraperService
   private
   
   def get_api_check_counts(repo, pr_number)
+    # Temporarily disable API counts as they seem to be inaccurate
+    return nil
+    
     # Use GitHub API to get accurate check counts
     # This method should be implemented to use the GitHub service
     # For now, return nil to use scraping

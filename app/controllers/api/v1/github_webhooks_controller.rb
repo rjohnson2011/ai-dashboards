@@ -1,5 +1,5 @@
 class Api::V1::GithubWebhooksController < ApplicationController
-  skip_before_action :verify_authenticity_token
+  # API mode doesn't have CSRF protection
   before_action :verify_webhook_signature
   
   def create

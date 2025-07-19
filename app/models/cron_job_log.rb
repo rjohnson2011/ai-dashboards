@@ -1,0 +1,2 @@
+class CronJobLog < ApplicationRecord
+end

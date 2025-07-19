@@ -30,6 +30,13 @@ logger.info "GitHub token present: Yes (#{token.length} chars)"
 logger.info "Token format valid: #{token.start_with?('ghp_') || token.start_with?('github_pat_')}"
 
 begin
+  # Create log entry
+  cron_log = CronJobLog.create!(
+    status: 'running',
+    started_at: Time.current
+  )
+  logger.info "Cron job log ID: #{cron_log.id}"
+  
   # Test database connection
   ActiveRecord::Base.connection.execute("SELECT 1")
   logger.info "Database connection successful"
@@ -150,10 +157,16 @@ begin
   scrape_success = 0
   
   # Process in smaller batches
+  total_prs = PullRequest.where(state: 'open').count
+  processed = 0
+  
   PullRequest.where(state: 'open').find_in_batches(batch_size: 10) do |batch|
+    logger.info "Processing batch: PRs #{processed + 1}-#{processed + batch.size} of #{total_prs}"
+    
     batch.each do |pr|
       begin
-        logger.info "Scraping checks for PR ##{pr.number}"
+        processed += 1
+        logger.info "[#{processed}/#{total_prs}] Scraping checks for PR ##{pr.number}: #{pr.title[0..50]}..."
         
         # Scrape the checks
         result = scraper_service.scrape_pr_checks_detailed(pr.url)
@@ -259,11 +272,57 @@ begin
   logger.info "Review errors: #{review_errors}"
   logger.info "=" * 60
   
+  # Update log entry
+  cron_log.update!(
+    status: 'completed',
+    completed_at: Time.current,
+    prs_processed: scrape_success + scrape_errors,
+    prs_updated: scrape_success
+  )
+  
   # Exit successfully
   exit 0
   
-rescue => e
-  logger.error "Fatal error in cron job: #{e.message}"
-  logger.error e.backtrace.join("\n")
+rescue StandardError => e
+  logger.error "="*60
+  logger.error "FATAL ERROR IN CRON JOB"
+  logger.error "="*60
+  logger.error "Error Class: #{e.class}"
+  logger.error "Error Message: #{e.message}"
+  logger.error "Error Location: #{e.backtrace&.first}"
+  logger.error ""
+  logger.error "Full Backtrace:"
+  logger.error e.backtrace&.join("\n")
+  logger.error "="*60
+  
+  # Log to database for persistence
+  begin
+    if defined?(cron_log) && cron_log
+      cron_log.update!(
+        status: 'failed',
+        error_class: e.class.to_s,
+        error_message: e.message,
+        error_backtrace: e.backtrace&.first(50)&.join("\n"),
+        completed_at: Time.current
+      )
+    else
+      CronJobLog.create!(
+        status: 'failed',
+        started_at: Time.current,
+        completed_at: Time.current,
+        error_class: e.class.to_s,
+        error_message: e.message,
+        error_backtrace: e.backtrace&.first(50)&.join("\n")
+      )
+    end
+  rescue => log_error
+    logger.error "Could not log to database: #{log_error.message}"
+  end
+  
+  exit 1
+rescue Exception => e
+  # Catch absolutely everything
+  logger.error "UNEXPECTED EXCEPTION: #{e.class} - #{e.message}"
+  logger.error e.backtrace&.first(10)&.join("\n")
   exit 1
 end

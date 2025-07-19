@@ -395,6 +395,60 @@ module Api
         
         render json: debug_info
       end
+      
+      def cron_status
+        # Simple auth check
+        unless params[:token] == ENV['ADMIN_TOKEN']
+          render json: { error: 'Unauthorized' }, status: :unauthorized
+          return
+        end
+        
+        # Get recent cron job logs
+        recent_logs = CronJobLog.order(started_at: :desc).limit(10)
+        
+        # Get last successful run
+        last_success = CronJobLog.where(status: 'completed').order(started_at: :desc).first
+        
+        # Get last failure
+        last_failure = CronJobLog.where(status: 'failed').order(started_at: :desc).first
+        
+        # Calculate stats
+        last_24h = CronJobLog.where('started_at > ?', 24.hours.ago)
+        
+        render json: {
+          last_success: last_success ? {
+            started_at: last_success.started_at,
+            completed_at: last_success.completed_at,
+            duration_seconds: last_success.completed_at ? (last_success.completed_at - last_success.started_at).round(2) : nil,
+            prs_processed: last_success.prs_processed,
+            prs_updated: last_success.prs_updated
+          } : nil,
+          last_failure: last_failure ? {
+            started_at: last_failure.started_at,
+            error_class: last_failure.error_class,
+            error_message: last_failure.error_message,
+            error_location: last_failure.error_backtrace&.lines&.first
+          } : nil,
+          stats_24h: {
+            total_runs: last_24h.count,
+            successful: last_24h.where(status: 'completed').count,
+            failed: last_24h.where(status: 'failed').count,
+            running: last_24h.where(status: 'running').count
+          },
+          recent_logs: recent_logs.map do |log|
+            {
+              id: log.id,
+              status: log.status,
+              started_at: log.started_at,
+              completed_at: log.completed_at,
+              duration_seconds: log.completed_at && log.started_at ? (log.completed_at - log.started_at).round(2) : nil,
+              prs_processed: log.prs_processed,
+              error_class: log.error_class,
+              error_message: log.error_message&.truncate(200)
+            }
+          end
+        }
+      end
     end
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_07_19_123953) do
+ActiveRecord::Schema[8.0].define(version: 2025_07_19_144122) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -37,6 +37,19 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_19_123953) do
     t.index ["pull_request_id"], name: "index_check_runs_on_pull_request_id"
     t.index ["required"], name: "index_check_runs_on_required"
     t.index ["status"], name: "index_check_runs_on_status"
+  end
+
+  create_table "cron_job_logs", force: :cascade do |t|
+    t.string "status"
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.string "error_class"
+    t.text "error_message"
+    t.text "error_backtrace"
+    t.integer "prs_processed"
+    t.integer "prs_updated"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
   end
 
   create_table "daily_snapshots", force: :cascade do |t|

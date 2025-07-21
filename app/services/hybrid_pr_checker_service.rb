@@ -14,13 +14,17 @@ class HybridPrCheckerService
     # Step 2: Get commit statuses (for Jenkins, CircleCI, etc.)
     commit_statuses = get_commit_statuses_from_api(pr)
     
-    # Step 3: Combine and deduplicate
-    all_checks = combine_checks(check_runs, commit_statuses)
+    # Step 3: Get pending check suites (queued but not started)
+    pending_suites = get_pending_check_suites(pr)
     
-    # Step 4: Get required checks from branch protection
-    required_checks = get_required_checks(pr)
+    # Step 4: Combine and deduplicate
+    all_checks = combine_checks(check_runs, commit_statuses) + pending_suites
     
-    # Step 5: Calculate summary
+    # Step 5: Get required checks from branch protection and add missing ones
+    required_checks = get_required_checks_and_add_missing(pr, all_checks)
+    all_checks = all_checks + required_checks
+    
+    # Step 6: Calculate summary
     result = {
       checks: all_checks,
       total_checks: all_checks.length,
@@ -30,7 +34,7 @@ class HybridPrCheckerService
       overall_status: calculate_overall_status(all_checks)
     }
     
-    @logger.info "Found #{result[:total_checks]} total checks (#{result[:successful_checks]} success, #{result[:failed_checks]} failed)"
+    @logger.info "Found #{result[:total_checks]} total checks (#{result[:successful_checks]} success, #{result[:failed_checks]} failed, #{result[:pending_checks]} pending)"
     
     result
   end
@@ -117,6 +121,13 @@ class HybridPrCheckerService
     statuses
   end
   
+  def get_pending_check_suites(pr)
+    # GitHub UI doesn't show queued check suites that have never run
+    # unless they're required checks. Since we handle required checks
+    # separately, we'll return empty here to match the UI behavior.
+    []
+  end
+  
   def combine_checks(check_runs, commit_statuses)
     # Combine both sources
     all_checks = check_runs + commit_statuses
@@ -125,10 +136,39 @@ class HybridPrCheckerService
     all_checks.uniq { |check| check[:name] }
   end
   
-  def get_required_checks(pr)
-    # TODO: Implement branch protection API call to get required checks
-    # For now, return empty array
-    []
+  def get_required_checks_and_add_missing(pr, existing_checks)
+    missing_checks = []
+    
+    # Known required checks for vets-api (hardcoded for now since branch protection API requires admin)
+    known_required_checks = [
+      'Succeed if backend approval is confirmed',
+      'continuous-integration/jenkins/pr-head'
+    ]
+    
+    # Check which required checks are missing
+    existing_names = existing_checks.map { |c| c[:name] }
+    
+    known_required_checks.each do |required_name|
+      unless existing_names.include?(required_name)
+        # This required check hasn't reported yet
+        missing_checks << {
+          name: required_name,
+          status: 'pending',
+          suite_name: 'Required Checks',
+          url: nil,
+          required: true
+        }
+      end
+    end
+    
+    # Mark existing checks as required if they match
+    existing_checks.each do |check|
+      if known_required_checks.include?(check[:name])
+        check[:required] = true
+      end
+    end
+    
+    missing_checks
   end
   
   def calculate_overall_status(checks)

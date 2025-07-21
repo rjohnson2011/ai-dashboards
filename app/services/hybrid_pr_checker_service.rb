@@ -61,8 +61,10 @@ class HybridPrCheckerService
       )
       
       response.check_runs.each do |run|
-        # Skip cancelled and skipped runs (UI doesn't show them)
-        next if ['cancelled', 'skipped'].include?(run.conclusion)
+        # Skip cancelled runs (UI doesn't show them)
+        # Also skip skipped runs unless they're backend approval (which shows as Expected)
+        next if run.conclusion == 'cancelled'
+        next if run.conclusion == 'skipped' && !run.name.include?('backend approval')
         
         # Determine status
         status = case run.status
@@ -71,6 +73,13 @@ class HybridPrCheckerService
           when 'success' then 'success'
           when 'failure', 'timed_out' then 'failure'
           when 'neutral' then 'neutral'
+          when 'skipped'
+            # Skipped required checks show as "Expected" in UI
+            if run.name.include?('backend approval')
+              'pending'
+            else
+              'skipped'
+            end
           else 'unknown'
           end
         when 'in_progress', 'queued' then 'pending'
@@ -175,26 +184,15 @@ class HybridPrCheckerService
     # Special checks that appear in UI but not in API
     special_checks = []
     
-    # Code scanning results / CodeQL
+    # Code scanning results / CodeQL (only if not already present)
     special_checks << {
       name: "Code scanning results / CodeQL",
       status: 'success',
       suite_name: "Code scanning results",
       url: nil,
       required: false,
-      check_name: "CodeQL",
+      check_name: "Code scanning results / CodeQL",
       trigger_type: "code_scanning"
-    }
-    
-    # Coverage (if exists)
-    special_checks << {
-      name: "Coverage",
-      status: 'success',
-      suite_name: "Coverage",
-      url: nil,
-      required: false,
-      check_name: "Coverage",
-      trigger_type: "coverage"
     }
     
     special_checks

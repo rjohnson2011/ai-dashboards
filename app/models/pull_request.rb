@@ -69,7 +69,7 @@ class PullRequest < ApplicationRecord
     # 2. Has at least one approval from a non-backend reviewer
     
     # Check if we have failing checks (excluding backend review check)
-    non_backend_failing_checks = if failed_checks > 0
+    non_backend_failing_checks = if failed_checks.to_i > 0
       # Look for failing checks that are NOT the backend review check
       # Using the check data from cache if available
       failing_check_details = Rails.cache.read("pr_#{id}_failing_checks") || []
@@ -107,11 +107,11 @@ class PullRequest < ApplicationRecord
     # 2. Has backend approval and only 1 failing check (assumed to be the backend check itself)
     # AND is not a draft and is open
     
-    return false unless state == 'open' && !draft && total_checks > 0
+    return false unless state == 'open' && !draft && total_checks.to_i > 0
     
-    if failed_checks == 0
+    if failed_checks.to_i == 0
       true
-    elsif backend_approval_status == 'approved' && failed_checks == 1
+    elsif backend_approval_status == 'approved' && failed_checks.to_i == 1
       # Check if the only failing check is the backend approval check
       # TODO: Re-enable cache after solid_cache migrations
       # failing_checks = Rails.cache.read("pr_#{id}_failing_checks") || []

@@ -26,7 +26,10 @@ class HybridPrCheckerService
     # Step 6: Mark required checks
     mark_required_checks(all_checks)
     
-    # Step 7: Calculate summary
+    # Step 7: Adjust backend approval check based on PR's backend approval status
+    adjust_backend_approval_check(all_checks, pr)
+    
+    # Step 8: Calculate summary
     result = {
       checks: all_checks,
       total_checks: all_checks.length,
@@ -256,6 +259,37 @@ class HybridPrCheckerService
     
     checks.each do |check|
       check[:required] = required_patterns.any? { |pattern| check[:name] =~ pattern }
+    end
+  end
+  
+  def adjust_backend_approval_check(checks, pr)
+    # Find the backend approval check
+    backend_check_found = false
+    
+    checks.each do |check|
+      if check[:name].include?('Succeed if backend approval is confirmed')
+        backend_check_found = true
+        # Adjust status based on PR's backend approval
+        if pr.backend_approval_status == 'approved'
+          check[:status] = 'success'
+        else
+          # Not approved yet - show as pending (Expected)
+          check[:status] = 'pending'
+        end
+      end
+    end
+    
+    # If no backend approval check exists, add it as required
+    if !backend_check_found
+      checks << {
+        name: "Require backend-review-group approval / Succeed if backend approval is confirmed (pull_request_review)",
+        status: pr.backend_approval_status == 'approved' ? 'success' : 'pending',
+        suite_name: "Require backend-review-group approval",
+        url: nil,
+        required: true,
+        check_name: "Succeed if backend approval is confirmed",
+        trigger_type: "pull_request_review"
+      }
     end
   end
   

@@ -17,44 +17,39 @@ class PlaywrightScraperService
     }
 
     Playwright.create(playwright_cli_executable_path: 'npx playwright') do |playwright|
-      browser = playwright.chromium.launch(
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      )
+      browser = playwright.chromium.launch(headless: true)
       
       begin
-        context = browser.new_context(
-          viewport: { width: 1920, height: 1080 },
-          user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        )
-        
-        page = context.new_page
+        page = browser.new_page
         
         # Navigate to PR page
         @logger.info "Navigating to: #{pr_url}"
-        page.goto(pr_url, wait_until: 'networkidle', timeout: 30000)
+        page.goto(pr_url)
         
-        # Wait for checks to load - multiple strategies
-        begin
-          # First try: Wait for the checks summary element
-          page.wait_for_selector('[data-testid="checks-status-badge"]', timeout: 10000)
-        rescue
-          # Fallback: Wait for merge box or status checks
+        # Wait for the page to be fully loaded
+        page.wait_for_load_state
+        
+        # Wait for checks to appear - try multiple selectors
+        checks_found = false
+        
+        # Try to find check elements with various selectors
+        ['[data-testid="check-run-item"]', '.merge-status-item', '.branch-action-item'].each do |selector|
           begin
-            page.wait_for_selector('.merge-status-list', timeout: 5000)
+            page.wait_for_selector(selector, timeout: 5000)
+            checks_found = true
+            @logger.info "Found checks using selector: #{selector}"
+            break
           rescue
-            # Last resort: Just wait for network idle
-            page.wait_for_load_state('networkidle')
+            # Try next selector
           end
         end
         
-        # Additional wait to ensure dynamic content loads
-        page.wait_for_timeout(2000)
+        # Additional wait for dynamic content
+        sleep 2
         
-        # Try multiple selectors to find check information
+        # Extract check data
         checks_data = extract_checks_data(page)
         
-        # Parse the checks
         if checks_data[:checks].any?
           result[:checks] = checks_data[:checks]
           result[:total_checks] = checks_data[:total]
@@ -95,77 +90,87 @@ class PlaywrightScraperService
     failed = 0
     pending = 0
 
-    # Strategy 1: Try to find GitHub's check runs list
-    check_runs = page.locator('[data-testid="check-run-item"], .merge-status-item, .status-check-rollup-item').all
+    # Look for various check elements
+    selectors = [
+      '[data-testid="check-run-item"]',
+      '.merge-status-item',
+      '.branch-action-item',
+      '.status-check'
+    ]
     
-    if check_runs.any?
-      @logger.info "Found #{check_runs.length} check items using test-id selectors"
+    selectors.each do |selector|
+      elements = page.query_selector_all(selector)
+      next if elements.empty?
       
-      check_runs.each do |check_element|
+      @logger.info "Found #{elements.length} elements with selector: #{selector}"
+      
+      elements.each do |element|
         begin
-          # Extract check details
-          name = check_element.locator('.status-check-item-name, [data-testid="check-run-name"], .merge-status-item-name').first&.text_content&.strip
-          next unless name
+          text = element.text_content
+          next if text.nil? || text.strip.empty?
           
-          # Determine status from various indicators
-          status = determine_check_status(check_element)
+          # Try to extract check name
+          name = text.strip.split("\n").first
+          
+          # Determine status from text content
+          status = if text.include?('Successful') || text.include?('Success') || text.include?('✓')
+            'success'
+          elsif text.include?('Failed') || text.include?('Failure') || text.include?('✗')
+            'failure'  
+          elsif text.include?('Pending') || text.include?('In progress') || text.include?('Queued')
+            'pending'
+          else
+            'unknown'
+          end
           
           checks << {
             name: name,
             status: status,
-            required: check_element.text_content.include?('Required') || false
+            required: text.include?('Required')
           }
           
-          # Count statuses
           case status
           when 'success' then successful += 1
-          when 'failure', 'error' then failed += 1
-          when 'pending', 'in_progress' then pending += 1
+          when 'failure' then failed += 1
+          when 'pending' then pending += 1
           end
           
           total += 1
         rescue => e
-          @logger.warn "Error parsing check element: #{e.message}"
+          @logger.warn "Error parsing element: #{e.message}"
         end
       end
+      
+      break if checks.any? # Stop if we found checks
     end
     
-    # Strategy 2: If no individual checks found, try summary counts
+    # If no individual checks found, try to find summary text
     if checks.empty?
-      summary_text = page.locator('.branch-action-item-summary, .merge-status-list-summary').first&.text_content
-      if summary_text
-        @logger.info "Using summary text: #{summary_text}"
+      summary_element = page.query_selector('.merge-status-list-summary, .branch-action-item-summary')
+      if summary_element
+        summary_text = summary_element.text_content
+        @logger.info "Found summary text: #{summary_text}"
         
-        # Parse summary like "18 successful checks"
-        if summary_text =~ /(\d+)\s+successful/
+        # Parse numbers from summary
+        if summary_text =~ /(\d+)\s+checks?\s+pass/i
           successful = $1.to_i
-          total += successful
         end
-        if summary_text =~ /(\d+)\s+failing/
+        if summary_text =~ /(\d+)\s+successful/i
+          successful = $1.to_i
+        end
+        if summary_text =~ /(\d+)\s+fail/i
           failed = $1.to_i
-          total += failed
         end
-        if summary_text =~ /(\d+)\s+pending/
+        if summary_text =~ /(\d+)\s+pending/i
           pending = $1.to_i
-          total += pending
         end
         
-        # Create placeholder checks
-        total.times do |i|
-          status = if i < successful
-            'success'
-          elsif i < successful + failed
-            'failure'
-          else
-            'pending'
-          end
-          
-          checks << {
-            name: "Check #{i + 1}",
-            status: status,
-            required: false
-          }
-        end
+        total = successful + failed + pending
+        
+        # Create placeholder checks based on counts
+        successful.times { checks << { name: "Check", status: 'success', required: false } }
+        failed.times { checks << { name: "Check", status: 'failure', required: false } }
+        pending.times { checks << { name: "Check", status: 'pending', required: false } }
       end
     end
     
@@ -178,17 +183,5 @@ class PlaywrightScraperService
       failed: failed,
       pending: pending
     }
-  end
-
-  def determine_check_status(element)
-    text = element.text_content.downcase
-    
-    # Check for status indicators in order of precedence
-    return 'failure' if text.include?('failed') || text.include?('failure') || element.locator('.octicon-x').count > 0
-    return 'success' if text.include?('successful') || text.include?('passed') || element.locator('.octicon-check').count > 0
-    return 'pending' if text.include?('pending') || text.include?('queued') || element.locator('.octicon-dot-fill').count > 0
-    return 'in_progress' if text.include?('in progress') || text.include?('running')
-    
-    'unknown'
   end
 end

@@ -31,7 +31,8 @@ begin
   
   # Initialize services
   github_service = GithubService.new
-  scraper_service = PlaywrightScraperService.new
+  # Use hybrid approach for better accuracy
+  checker_service = HybridPrCheckerService.new
   
   # Check rate limit
   rate_limit = github_service.rate_limit
@@ -99,7 +100,7 @@ begin
       begin
         logger.info "[#{index + 1}/#{prs_to_scrape.count}] Scraping PR ##{pr.number}"
         
-        result = scraper_service.scrape_pr_checks_detailed(pr.url)
+        result = checker_service.get_accurate_pr_checks(pr)
         
         # Update PR with results
         pr.update!(

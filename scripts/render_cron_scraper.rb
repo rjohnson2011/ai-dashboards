@@ -177,7 +177,8 @@ begin
           ci_status: result[:overall_status] || 'unknown',
           total_checks: result[:total_checks] || 0,
           successful_checks: result[:successful_checks] || 0,
-          failed_checks: result[:failed_checks] || 0
+          failed_checks: result[:failed_checks] || 0,
+          pending_checks: result[:pending_checks] || 0
         )
         
         # Store failing checks in cache (disabled in production due to solid_cache setup)

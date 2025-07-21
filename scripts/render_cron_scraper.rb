@@ -57,6 +57,7 @@ begin
     logger.info "GitHub client created successfully"
     
     scraper_service = EnhancedGithubScraperService.new
+    hybrid_service = HybridPrCheckerService.new
   rescue => e
     logger.error "Failed to create GitHub service: #{e.class} - #{e.message}"
     logger.error "This usually means the token is invalid or malformed"
@@ -166,10 +167,10 @@ begin
     batch.each do |pr|
       begin
         processed += 1
-        logger.info "[#{processed}/#{total_prs}] Scraping checks for PR ##{pr.number}: #{pr.title[0..50]}..."
+        logger.info "[#{processed}/#{total_prs}] Getting accurate checks for PR ##{pr.number}: #{pr.title[0..50]}..."
         
-        # Scrape the checks
-        result = scraper_service.scrape_pr_checks_detailed(pr.url)
+        # Use hybrid checker for accurate results
+        result = hybrid_service.get_accurate_pr_checks(pr)
         
         # Update PR with check counts
         pr.update!(

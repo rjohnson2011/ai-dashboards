@@ -113,9 +113,11 @@ class PullRequest < ApplicationRecord
       true
     elsif backend_approval_status == 'approved' && failed_checks == 1
       # Check if the only failing check is the backend approval check
-      failing_checks = Rails.cache.read("pr_#{id}_failing_checks") || []
+      # TODO: Re-enable cache after solid_cache migrations
+      # failing_checks = Rails.cache.read("pr_#{id}_failing_checks") || []
+      failing_checks = check_runs.where(status: ['failure', 'error', 'cancelled']).to_a
       if failing_checks.length == 1
-        check_name = failing_checks.first[:name].to_s.downcase
+        check_name = failing_checks.first.name.to_s.downcase
         check_name.include?('backend') && check_name.include?('approval')
       else
         # If we don't have cache data but have backend approval and 1 failure, assume it's approved

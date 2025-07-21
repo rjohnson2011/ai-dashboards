@@ -21,7 +21,7 @@ logger.info "Repository: #{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}"
 # Validate GitHub token
 if ENV['GITHUB_TOKEN'].blank?
   logger.error "GITHUB_TOKEN environment variable is not set!"
-  exit 1
+  raise "GITHUB_TOKEN not configured"
 end
 
 # Validate token format
@@ -60,7 +60,7 @@ begin
   rescue => e
     logger.error "Failed to create GitHub service: #{e.class} - #{e.message}"
     logger.error "This usually means the token is invalid or malformed"
-    exit 1
+    raise e
   end
   
   # Check rate limit before starting
@@ -84,12 +84,12 @@ begin
     
     logger.error "Raw API response: #{res.code} - #{res.message}"
     logger.error "Response body: #{res.body[0..200]}..." if res.body
-    exit 1
+    raise "GitHub authentication failed"
   end
   
   if rate_limit.remaining < 100
     logger.error "Low API rate limit (#{rate_limit.remaining}), exiting"
-    exit 1
+    raise "API rate limit too low"
   end
   
   # Step 1: Fetch all open PRs
@@ -282,8 +282,7 @@ begin
     prs_updated: scrape_success
   )
   
-  # Exit successfully
-  exit 0
+  # Script completed successfully - no need to exit when using rails runner
   
 rescue StandardError => e
   logger.error "="*60
@@ -321,10 +320,10 @@ rescue StandardError => e
     logger.error "Could not log to database: #{log_error.message}"
   end
   
-  exit 1
+  raise e  # Re-raise the error for rails runner to handle
 rescue Exception => e
   # Catch absolutely everything
   logger.error "UNEXPECTED EXCEPTION: #{e.class} - #{e.message}"
   logger.error e.backtrace&.first(10)&.join("\n")
-  exit 1
+  raise e  # Re-raise the error for rails runner to handle
 end

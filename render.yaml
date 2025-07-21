@@ -7,8 +7,9 @@ databases:
 services:
   - type: web
     name: platform-code-reviews-api
-    env: ruby
-    buildCommand: "./bin/render-build.sh"
+    env: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
     startCommand: "bundle exec rake db:migrate && bundle exec puma -C config/puma.rb"
     envVars:
       - key: DATABASE_URL
@@ -22,6 +23,8 @@ services:
       - key: GITHUB_OWNER
         sync: false
       - key: GITHUB_REPO
+        sync: false
+      - key: ADMIN_TOKEN
         sync: false
       - key: WEB_CONCURRENCY
         value: 2
@@ -38,3 +41,51 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://platform-code-reviews-api.onrender.com
+
+  # Cron job for frequent PR updates during work hours
+  - type: cron
+    name: pr-scraper-frequent
+    env: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    schedule: "*/15 8-18 * * 1-5" # Every 15 min, 8am-6pm, Mon-Fri
+    command: "bundle exec rails runner scripts/fast_pr_scraper.rb"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: platform-code-reviews-db
+          property: connectionString
+      - key: RAILS_MASTER_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: GITHUB_REPO
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+
+  # Cron job for full sync (off hours)
+  - type: cron
+    name: pr-scraper-full
+    env: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    schedule: "0 7,19 * * *" # 7am and 7pm daily
+    command: "bundle exec rails runner scripts/render_cron_scraper.rb"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: platform-code-reviews-db
+          property: connectionString
+      - key: RAILS_MASTER_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: GITHUB_REPO
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false

@@ -54,6 +54,9 @@ gem "httparty", "~> 0.22"
 gem "selenium-webdriver", "~> 4.0"
 gem "webdrivers", "~> 5.0"
 
+# Playwright for accurate JavaScript rendering
+gem "playwright-ruby-client", "~> 1.40"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"

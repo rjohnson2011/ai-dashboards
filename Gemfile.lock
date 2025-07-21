@@ -153,6 +153,10 @@ GEM
       net-pop
       net-smtp
     marcel (1.0.4)
+    mime-types (3.7.0)
+      logger
+      mime-types-data (~> 3.2025, >= 3.2025.0507)
+    mime-types-data (3.2025.0715)
     mini_mime (1.1.5)
     minitest (5.25.5)
     msgpack (1.8.0)
@@ -200,6 +204,9 @@ GEM
       ast (~> 2.4.1)
       racc
     pg (1.5.9)
+    playwright-ruby-client (1.54.0)
+      concurrent-ruby (>= 1.1.6)
+      mime-types (>= 3.0)
     pp (0.6.2)
       prettyprint
     prettyprint (0.2.0)
@@ -374,6 +381,7 @@ DEPENDENCIES
   nokogiri (~> 1.16)
   octokit (~> 9.0)
   pg (~> 1.1)
+  playwright-ruby-client (~> 1.40)
   puma (>= 5.0)
   rack-cors
   rails (~> 8.0.1)

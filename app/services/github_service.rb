@@ -33,6 +33,13 @@ class GithubService
     []
   end
 
+  def pull_request(pr_number)
+    @client.pull_request("#{@owner}/#{@repo}", pr_number)
+  rescue Octokit::Error => e
+    Rails.logger.error "GitHub API Error: #{e.message}"
+    nil
+  end
+
   def pull_request_reviews(pr_number)
     @client.pull_request_reviews("#{@owner}/#{@repo}", pr_number)
   rescue Octokit::Error => e

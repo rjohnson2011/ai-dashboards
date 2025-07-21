@@ -179,13 +179,14 @@ begin
           failed_checks: result[:failed_checks] || 0
         )
         
-        # Store failing checks in cache
-        if result[:failed_checks] > 0 && result[:checks].any?
-          failing_checks = result[:checks].select { |c| ['failure', 'error', 'cancelled'].include?(c[:status]) }
-          Rails.cache.write("pr_#{pr.id}_failing_checks", failing_checks, expires_in: 1.hour)
-        else
-          Rails.cache.delete("pr_#{pr.id}_failing_checks")
-        end
+        # Store failing checks in cache (disabled in production due to solid_cache setup)
+        # TODO: Enable after running cache migrations
+        # if result[:failed_checks] > 0 && result[:checks].any?
+        #   failing_checks = result[:checks].select { |c| ['failure', 'error', 'cancelled'].include?(c[:status]) }
+        #   Rails.cache.write("pr_#{pr.id}_failing_checks", failing_checks, expires_in: 1.hour)
+        # else
+        #   Rails.cache.delete("pr_#{pr.id}_failing_checks")
+        # end
         
         # Clear existing check runs and save new ones
         pr.check_runs.destroy_all
@@ -250,8 +251,9 @@ begin
     end
   end
   
-  # Step 6: Update cache with completion time
-  Rails.cache.write('last_refresh_time', Time.current)
+  # Step 6: Update cache with completion time (disabled in production)
+  # TODO: Enable after running cache migrations
+  # Rails.cache.write('last_refresh_time', Time.current)
   
   # Clean up old webhook events if they exist
   if defined?(WebhookEvent)

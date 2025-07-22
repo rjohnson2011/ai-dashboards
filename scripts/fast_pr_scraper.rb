@@ -168,8 +168,8 @@ begin
       pr.update_ready_for_backend_review!
       pr.update_approval_status!
       
-      # If backend approval changed and this PR was scraped, update its checks
-      if old_backend_status != pr.backend_approval_status && prs_to_scrape.include?(pr)
+      # If backend approval changed, ALWAYS update checks (not just for scraped PRs)
+      if old_backend_status != pr.backend_approval_status
         backend_status_changes += 1
         logger.info "Backend approval changed for PR ##{pr.number}: #{old_backend_status} -> #{pr.backend_approval_status}"
         
@@ -180,7 +180,8 @@ begin
           total_checks: result[:total_checks],
           successful_checks: result[:successful_checks],
           failed_checks: result[:failed_checks],
-          pending_checks: result[:pending_checks] || 0
+          pending_checks: result[:pending_checks] || 0,
+          last_scraped_at: Time.current
         )
         
         # Update check runs
@@ -193,6 +194,30 @@ begin
             suite_name: check[:suite_name]
           )
         end
+      elsif pr.check_runs.where("name LIKE ?", "%backend approval%").empty?
+        # Even if backend approval didn't change, ensure the check exists
+        logger.info "PR ##{pr.number} missing backend approval check - adding it"
+        
+        result = checker_service.get_accurate_pr_checks(pr)
+        pr.update!(
+          ci_status: result[:overall_status],
+          total_checks: result[:total_checks],
+          successful_checks: result[:successful_checks],
+          failed_checks: result[:failed_checks],
+          pending_checks: result[:pending_checks] || 0,
+          last_scraped_at: Time.current
+        )
+        
+        pr.check_runs.destroy_all
+        result[:checks].each do |check|
+          pr.check_runs.create!(
+            name: check[:name],
+            status: check[:status] || 'unknown',
+            required: check[:required] || false,
+            suite_name: check[:suite_name]
+          )
+        end
+        backend_status_changes += 1
       end
     rescue => e
       logger.error "Error updating reviews for PR ##{pr.number}: #{e.message}"

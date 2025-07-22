@@ -48,7 +48,7 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile.render
     dockerContext: .
-    schedule: "*/15 8-18 * * 1-5" # Every 15 min, 8am-6pm, Mon-Fri
+    schedule: "*/15 * * * *" # Every 15 minutes, 24/7
     command: "bundle exec rails runner scripts/fast_pr_scraper.rb"
     envVars:
       - key: DATABASE_URL

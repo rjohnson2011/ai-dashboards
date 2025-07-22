@@ -117,7 +117,8 @@ begin
           pr.check_runs.create!(
             name: check[:name],
             status: check[:status] || 'unknown',
-            required: check[:required] || false
+            required: check[:required] || false,
+            suite_name: check[:suite_name]
           )
         end
         
@@ -137,12 +138,19 @@ begin
   
   logger.info "Scraping complete: #{successful_scrapes}/#{results.count} successful"
   
-  # Step 4: Quick review sync for scraped PRs
-  logger.info "Updating reviews for scraped PRs..."
+  # Step 4: Quick review sync for ALL open PRs (to catch backend approvals)
+  logger.info "Updating reviews for all open PRs..."
   review_errors = 0
+  backend_status_changes = 0
   
-  prs_to_scrape.each do |pr|
+  # Get all open PRs to check for review updates
+  all_open_prs = PullRequest.where(state: 'open')
+  
+  all_open_prs.each do |pr|
     begin
+      # Store current backend approval status
+      old_backend_status = pr.backend_approval_status
+      
       reviews = github_service.pull_request_reviews(pr.number)
       
       reviews.each do |review_data|
@@ -159,6 +167,33 @@ begin
       pr.update_backend_approval_status!
       pr.update_ready_for_backend_review!
       pr.update_approval_status!
+      
+      # If backend approval changed and this PR was scraped, update its checks
+      if old_backend_status != pr.backend_approval_status && prs_to_scrape.include?(pr)
+        backend_status_changes += 1
+        logger.info "Backend approval changed for PR ##{pr.number}: #{old_backend_status} -> #{pr.backend_approval_status}"
+        
+        # Re-run the check update to reflect the backend approval change
+        result = checker_service.get_accurate_pr_checks(pr)
+        pr.update!(
+          ci_status: result[:overall_status],
+          total_checks: result[:total_checks],
+          successful_checks: result[:successful_checks],
+          failed_checks: result[:failed_checks],
+          pending_checks: result[:pending_checks] || 0
+        )
+        
+        # Update check runs
+        pr.check_runs.destroy_all
+        result[:checks].each do |check|
+          pr.check_runs.create!(
+            name: check[:name],
+            status: check[:status] || 'unknown',
+            required: check[:required] || false,
+            suite_name: check[:suite_name]
+          )
+        end
+      end
     rescue => e
       logger.error "Error updating reviews for PR ##{pr.number}: #{e.message}"
       review_errors += 1
@@ -180,6 +215,8 @@ begin
   logger.info "Fast scraper completed!"
   logger.info "Execution time: #{execution_time.round(2)} seconds"
   logger.info "PRs scraped: #{successful_scrapes}/#{prs_to_scrape.count}"
+  logger.info "Reviews updated: #{all_open_prs.count - review_errors}/#{all_open_prs.count}"
+  logger.info "Backend approval changes: #{backend_status_changes}"
   logger.info "API calls used: #{rate_limit.remaining - final_rate_limit.remaining}"
   logger.info "="*60
   

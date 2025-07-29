@@ -23,6 +23,9 @@ class Api::V1::ReviewsController < ApplicationController
         }
       end
       
+      # Initialize timeline service (disabled for now to avoid too many API calls)
+      # timeline_service = PrTimelineService.new
+      
       # Format PR data helper
       format_pr = lambda do |pr|
         failing_checks = pr.check_runs.failed.deduplicate_by_suite.map do |check|
@@ -33,6 +36,46 @@ class Api::V1::ReviewsController < ApplicationController
             description: check.description,
             required: check.required
           }
+        end
+        
+        # Create simple timeline from existing data to avoid API calls
+        timeline_data = []
+        
+        # Add last update
+        if pr.pr_updated_at
+          time_ago = time_ago_in_words(pr.pr_updated_at)
+          timeline_data << "Updated #{time_ago}"
+        end
+        
+        # Add backend approval status
+        if pr.backend_approval_status == 'approved'
+          timeline_data << "Backend approved ✅"
+        elsif pr.ready_for_backend_review
+          timeline_data << "Ready for backend review 👀"
+        end
+        
+        # Add CI status
+        if pr.ci_status == 'failure' && pr.failed_checks > 0
+          timeline_data << "#{pr.failed_checks} CI checks failing ❌"
+        elsif pr.ci_status == 'success'
+          timeline_data << "All CI checks passing ✅"
+        elsif pr.pending_checks && pr.pending_checks > 0
+          timeline_data << "#{pr.pending_checks} checks pending ⏳"
+        end
+        
+        # Add review status
+        if pr.approval_summary
+          if pr.approval_summary[:approved_count] > 0
+            timeline_data << "#{pr.approval_summary[:approved_count]} approvals 👍"
+          end
+          if pr.approval_summary[:changes_requested_count] > 0
+            timeline_data << "Changes requested 🔄"
+          end
+        end
+        
+        # Add draft status
+        if pr.draft
+          timeline_data << "Draft PR 📝"
         end
         
         {
@@ -56,7 +99,8 @@ class Api::V1::ReviewsController < ApplicationController
           failed_checks: pr.failed_checks,
           backend_approval_status: pr.backend_approval_status,
           approval_summary: pr.approval_summary,
-          ready_for_backend_review: pr.ready_for_backend_review
+          ready_for_backend_review: pr.ready_for_backend_review,
+          recent_timeline: timeline_data
         }
       end
       
@@ -146,6 +190,27 @@ class Api::V1::ReviewsController < ApplicationController
     end
   end
 
+  def timeline
+    begin
+      pr_number = params[:number]&.to_i
+      
+      unless pr_number && pr_number > 0
+        return render json: { error: 'Invalid PR number' }, status: :bad_request
+      end
+      
+      timeline_service = PrTimelineService.new
+      timeline_data = timeline_service.get_recent_timeline(pr_number, 5)
+      
+      render json: {
+        pr_number: pr_number,
+        timeline: timeline_data
+      }
+    rescue => e
+      Rails.logger.error "Error fetching timeline for PR #{pr_number}: #{e.message}"
+      render json: { error: 'Failed to fetch timeline' }, status: :internal_server_error
+    end
+  end
+
   def historical
     begin
       # Get the number of days from params, default to 30
@@ -181,6 +246,24 @@ class Api::V1::ReviewsController < ApplicationController
   end
 
   private
+
+  def time_ago_in_words(time)
+    return "unknown" unless time
+    
+    seconds = Time.now - time
+    case seconds
+    when 0...60
+      "just now"
+    when 60...3600
+      "#{(seconds / 60).round}m ago"
+    when 3600...86400
+      "#{(seconds / 3600).round}h ago"
+    when 86400...604800
+      "#{(seconds / 86400).round}d ago"
+    else
+      time.strftime("%b %d")
+    end
+  end
 
   def format_pr(pr)
     {

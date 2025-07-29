@@ -10,6 +10,7 @@ Rails.application.routes.draw do
     namespace :v1 do
       resources :reviews, only: [:index]
       get 'pull_requests/:number', to: 'reviews#show'
+      get 'pull_requests/:number/timeline', to: 'reviews#timeline'
       get 'reviews/status', to: 'reviews#status'
       post 'reviews/refresh', to: 'reviews#refresh'
       get 'reviews/historical', to: 'reviews#historical'

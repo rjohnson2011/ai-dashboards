@@ -5,7 +5,11 @@
 require 'logger'
 
 logger = Logger.new(STDOUT)
-logger.info "Starting daily metrics capture at #{Time.current}"
+logger.info "=== DAILY METRICS CRON JOB STARTED ==="
+logger.info "Time: #{Time.current}"
+logger.info "Environment: #{ENV['RAILS_ENV'] || 'development'}"
+logger.info "Ruby version: #{RUBY_VERSION}"
+logger.info "Rails root: #{Rails.root}"
 
 begin
   # Run the job
@@ -13,6 +17,7 @@ begin
   
   # Log success
   logger.info "Daily metrics captured successfully"
+  logger.info "=== DAILY METRICS CRON JOB COMPLETED ==="
   
   # Also log to cron job log
   CronJobLog.create!(

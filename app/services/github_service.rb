@@ -64,6 +64,13 @@ class GithubService
     @client.rate_limit
   end
 
+  def search_pull_requests(query:, per_page: 30)
+    @client.search_issues(query, per_page: per_page)
+  rescue Octokit::Error => e
+    Rails.logger.error "GitHub API Error searching PRs: #{e.message}"
+    OpenStruct.new(total_count: 0, items: [])
+  end
+
   def commit_status(sha)
     @client.combined_status("#{@owner}/#{@repo}", sha)
   rescue Octokit::Error => e

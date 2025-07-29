@@ -229,7 +229,10 @@ class Api::V1::ReviewsController < ApplicationController
           changes_requested_prs: snapshot.prs_with_changes_requested,
           draft_prs: snapshot.draft_prs,
           failing_ci_prs: snapshot.failing_ci_prs,
-          successful_ci_prs: snapshot.successful_ci_prs
+          successful_ci_prs: snapshot.successful_ci_prs,
+          prs_opened_today: snapshot.prs_opened_today || 0,
+          prs_closed_today: snapshot.prs_closed_today || 0,
+          prs_merged_today: snapshot.prs_merged_today || 0
         }
       end
       

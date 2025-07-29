@@ -63,6 +63,9 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_21_055849) do
     t.integer "successful_ci_prs", default: 0
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "prs_opened_today", default: 0
+    t.integer "prs_closed_today", default: 0
+    t.integer "prs_merged_today", default: 0
     t.index ["snapshot_date"], name: "index_daily_snapshots_on_snapshot_date", unique: true
   end
 

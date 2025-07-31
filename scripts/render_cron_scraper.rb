@@ -276,6 +276,20 @@ begin
   logger.info "Review errors: #{review_errors}"
   logger.info "=" * 60
   
+  # Run daily metrics capture once per day between 7-8am UTC (when this job runs at 7am)
+  current_hour = Time.current.utc.hour
+  today = Date.current
+  
+  if current_hour == 7 && !DailySnapshot.exists?(snapshot_date: today)
+    logger.info "Running daily metrics capture for #{today}..."
+    begin
+      CaptureDailyMetricsJob.perform_now
+      logger.info "Daily metrics captured successfully"
+    rescue => e
+      logger.error "Failed to capture daily metrics: #{e.message}"
+    end
+  end
+  
   # Update log entry
   cron_log.update!(
     status: 'completed',

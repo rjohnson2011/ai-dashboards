@@ -244,6 +244,20 @@ begin
   logger.info "Backend approval changes: #{backend_status_changes}"
   logger.info "API calls used: #{rate_limit.remaining - final_rate_limit.remaining}"
   logger.info "="*60
+  
+  # Run daily metrics capture once per day between 9-10am UTC
+  current_hour = Time.current.utc.hour
+  today = Date.current
+  
+  if current_hour == 9 && !DailySnapshot.exists?(snapshot_date: today)
+    logger.info "Running daily metrics capture for #{today}..."
+    begin
+      CaptureDailyMetricsJob.perform_now
+      logger.info "Daily metrics captured successfully"
+    rescue => e
+      logger.error "Failed to capture daily metrics: #{e.message}"
+    end
+  end
 
 rescue => e
   logger.error "FATAL ERROR: #{e.class} - #{e.message}"

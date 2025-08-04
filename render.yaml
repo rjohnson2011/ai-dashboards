@@ -95,7 +95,7 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile.render
     dockerContext: .
-    schedule: "0 9 * * *" # 9am UTC daily (2am PT / 5am ET)
+    schedule: "0 23 * * *" # 11pm UTC daily (6pm EST / 3pm PST)
     command: "bundle exec rails runner scripts/capture_daily_metrics.rb"
     envVars:
       - key: DATABASE_URL

@@ -4,9 +4,9 @@
 # Set the environment
 set :output, "log/cron.log"
 
-# Run the fetch pull request data job every 15 minutes
+# Run the fetch pull request data job for vets-api every 15 minutes
 every 15.minutes do
-  runner "FetchPullRequestDataJob.perform_later"
+  runner "FetchAllPullRequestsJob.perform_later(repository_name: 'vets-api', repository_owner: 'department-of-veterans-affairs')"
 end
 
 # Capture daily snapshot at 2 AM every day

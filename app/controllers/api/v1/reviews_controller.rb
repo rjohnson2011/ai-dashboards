@@ -14,7 +14,19 @@ class Api::V1::ReviewsController < ApplicationController
       # Fetch backend approved PRs separately
       approved_pull_requests = base_scope.open.where(backend_approval_status: 'approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
-      # Don't trigger job on page load anymore - handled by cron
+      # Check if this is a non-vets-api repository that needs on-demand scraping
+      if repository_name != 'vets-api' && base_scope.count == 0
+        # Check if we've already started scraping recently
+        cache_key = "scraping_#{repository_owner}_#{repository_name}"
+        unless Rails.cache.read(cache_key)
+          Rails.cache.write(cache_key, true, expires_in: 5.minutes)
+          # Trigger on-demand scraping for this repository
+          FetchAllPullRequestsJob.perform_later(
+            repository_name: repository_name,
+            repository_owner: repository_owner
+          )
+        end
+      end
       
       # If no PRs in database, return empty response with message
       if open_pull_requests.empty? && approved_pull_requests.empty?
@@ -24,7 +36,9 @@ class Api::V1::ReviewsController < ApplicationController
           count: 0,
           approved_count: 0,
           repository: "#{repository_owner}/#{repository_name}",
-          message: "Data is being refreshed. Please check back in a few minutes.",
+          message: repository_name == 'vets-api' ? 
+            "Data is being refreshed. Please check back in a few minutes." : 
+            "Loading data for #{repository_name}. This may take a few minutes for the first load.",
           last_updated: nil,
           updating: true
         }

@@ -1,0 +1,25 @@
+repositories:
+  - owner: department-of-veterans-affairs
+    name: vets-api
+    display_name: vets-api (Backend)
+    backend_review_required: true
+    
+  - owner: department-of-veterans-affairs
+    name: vets-website
+    display_name: vets-website (Frontend)
+    backend_review_required: false
+    
+  - owner: department-of-veterans-affairs
+    name: va.gov-team
+    display_name: va.gov-team
+    backend_review_required: false
+    
+  - owner: department-of-veterans-affairs
+    name: va.gov-team-sensitive
+    display_name: va.gov-team-sensitive
+    backend_review_required: false
+    
+  - owner: department-of-veterans-affairs
+    name: platform-atlas
+    display_name: platform-atlas
+    backend_review_required: false

@@ -8,6 +8,7 @@ Rails.application.routes.draw do
   # API routes
   namespace :api do
     namespace :v1 do
+      resources :repositories, only: [:index]
       resources :reviews, only: [:index]
       get 'pull_requests/:number', to: 'reviews#show'
       get 'pull_requests/:number/timeline', to: 'reviews#timeline'

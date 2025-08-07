@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_07_21_055849) do
+ActiveRecord::Schema[8.0].define(version: 2025_08_07_032216) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -66,6 +66,9 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_21_055849) do
     t.integer "prs_opened_today", default: 0
     t.integer "prs_closed_today", default: 0
     t.integer "prs_merged_today", default: 0
+    t.integer "prs_approved_during_business_hours", default: 0
+    t.datetime "business_hours_start"
+    t.datetime "business_hours_end"
     t.index ["snapshot_date"], name: "index_daily_snapshots_on_snapshot_date", unique: true
   end
 
@@ -105,9 +108,13 @@ ActiveRecord::Schema[8.0].define(version: 2025_07_21_055849) do
     t.string "head_sha"
     t.datetime "last_scraped_at"
     t.integer "pending_checks", default: 0
+    t.string "repository_name"
+    t.string "repository_owner"
     t.index ["backend_approval_status"], name: "index_pull_requests_on_backend_approval_status"
     t.index ["github_id"], name: "index_pull_requests_on_github_id", unique: true
     t.index ["head_sha"], name: "index_pull_requests_on_head_sha"
+    t.index ["repository_name"], name: "index_pull_requests_on_repository_name"
+    t.index ["repository_owner", "repository_name"], name: "index_pull_requests_on_repository_owner_and_repository_name"
   end
 
   create_table "webhook_events", force: :cascade do |t|

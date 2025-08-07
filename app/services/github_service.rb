@@ -1,8 +1,8 @@
 class GithubService
-  def initialize
+  def initialize(owner: nil, repo: nil)
     @client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'])
-    @owner = ENV['GITHUB_OWNER']
-    @repo = ENV['GITHUB_REPO']
+    @owner = owner || ENV['GITHUB_OWNER']
+    @repo = repo || ENV['GITHUB_REPO']
   end
 
   def pull_requests(state: 'open', per_page: 100)
@@ -101,7 +101,7 @@ class GithubService
 
   def get_ci_status(pr)
     # Use web scraping to get CI status from the PR page
-    scraper = GithubScraperService.new
+    scraper = GithubScraperService.new(owner: @owner, repo: @repo)
     scraper.scrape_pr_checks(pr.html_url)
   rescue => e
     Rails.logger.error "Error getting CI status for PR: #{e.message}"

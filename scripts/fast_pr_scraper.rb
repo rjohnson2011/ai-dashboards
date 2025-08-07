@@ -245,17 +245,20 @@ begin
   logger.info "API calls used: #{rate_limit.remaining - final_rate_limit.remaining}"
   logger.info "="*60
   
-  # Run daily metrics capture once per day between 9-10am UTC
-  current_hour = Time.current.utc.hour
+  # Run daily metrics capture at 6pm EST (11pm UTC)
+  current_time = Time.current.in_time_zone('America/New_York')
+  current_hour_est = current_time.hour
   today = Date.current
   
-  if current_hour == 9 && !DailySnapshot.exists?(snapshot_date: today)
-    logger.info "Running daily metrics capture for #{today}..."
+  # Check if it's between 6-7pm EST and we haven't captured today's snapshot yet
+  if current_hour_est == 18 && !DailySnapshot.exists?(snapshot_date: today)
+    logger.info "Running daily metrics capture for #{today} at #{current_time.strftime('%I:%M %p %Z')}..."
     begin
       CaptureDailyMetricsJob.perform_now
       logger.info "Daily metrics captured successfully"
     rescue => e
       logger.error "Failed to capture daily metrics: #{e.message}"
+      logger.error e.backtrace.first(5).join("\n")
     end
   end
 

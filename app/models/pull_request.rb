@@ -2,8 +2,14 @@ class PullRequest < ApplicationRecord
   has_many :check_runs, dependent: :destroy
   has_many :pull_request_reviews, dependent: :destroy
   
-  validates :github_id, presence: true, uniqueness: true
+  validates :github_id, presence: true
   validates :number, presence: true
+  validates :repository_name, presence: true
+  validates :repository_owner, presence: true
+  
+  # Ensure uniqueness per repository
+  validates :number, uniqueness: { scope: [:repository_owner, :repository_name] }
+  validates :github_id, uniqueness: { scope: [:repository_owner, :repository_name] }
   validates :title, presence: true
   validates :author, presence: true
   validates :state, presence: true

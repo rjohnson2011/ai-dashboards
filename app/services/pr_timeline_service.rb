@@ -1,9 +1,9 @@
 class PrTimelineService
-  def initialize
-    @github_service = GithubService.new
+  def initialize(owner: nil, repo: nil)
+    @github_service = GithubService.new(owner: owner, repo: repo)
     @client = @github_service.instance_variable_get(:@client)
-    @owner = @github_service.instance_variable_get(:@owner)
-    @repo = @github_service.instance_variable_get(:@repo)
+    @owner = owner || @github_service.instance_variable_get(:@owner)
+    @repo = repo || @github_service.instance_variable_get(:@repo)
   end
 
   def get_recent_timeline(pr_number, limit = 5)

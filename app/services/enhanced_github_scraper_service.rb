@@ -4,8 +4,10 @@ require 'nokogiri'
 class EnhancedGithubScraperService
   include HTTParty
   
-  def initialize
+  def initialize(owner: nil, repo: nil)
     @base_url = "https://github.com"
+    @owner = owner
+    @repo = repo
     self.class.headers 'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
   end
   

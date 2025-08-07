@@ -1,13 +1,13 @@
 class FetchPullRequestChecksJob < ApplicationJob
   queue_as :default
   
-  def perform(pull_request_id)
+  def perform(pull_request_id, repository_name: nil, repository_owner: nil)
     pr = PullRequest.find(pull_request_id)
     
-    Rails.logger.info "[FetchPullRequestChecksJob] Updating checks for PR ##{pr.number}"
+    Rails.logger.info "[FetchPullRequestChecksJob] Updating checks for PR ##{pr.number} in #{pr.repository_owner}/#{pr.repository_name}"
     
     # Use the scraper service to get check details
-    scraper = EnhancedGithubScraperService.new
+    scraper = EnhancedGithubScraperService.new(owner: pr.repository_owner, repo: pr.repository_name)
     result = scraper.scrape_pr_checks_detailed(pr.url)
     
     # Update PR with check counts

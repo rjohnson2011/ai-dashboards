@@ -1,7 +1,7 @@
 # Hybrid approach: Use GitHub API for data, scraping for missing pieces
 class HybridPrCheckerService
-  def initialize
-    @github_service = GithubService.new
+  def initialize(owner: nil, repo: nil)
+    @github_service = GithubService.new(owner: owner, repo: repo)
     @logger = Logger.new(STDOUT)
   end
   
@@ -29,7 +29,10 @@ class HybridPrCheckerService
     # Step 7: Adjust backend approval check based on PR's backend approval status
     adjust_backend_approval_check(all_checks, pr)
     
-    # Step 8: Calculate summary
+    # Step 8: Adjust Pull Request Ready for Review check if backend approved
+    adjust_ready_for_review_check(all_checks, pr)
+    
+    # Step 9: Calculate summary
     result = {
       checks: all_checks,
       total_checks: all_checks.length,
@@ -245,7 +248,8 @@ class HybridPrCheckerService
   end
   
   def mark_required_checks(checks)
-    # Known required checks for vets-api
+    # Known required checks - may vary by repository
+    # For now, using vets-api patterns as default
     required_patterns = [
       /Succeed if backend approval is confirmed/,
       /continuous-integration\/jenkins\/pr-head/,
@@ -293,10 +297,28 @@ class HybridPrCheckerService
     end
   end
   
+  def adjust_ready_for_review_check(checks, pr)
+    # If backend is approved, mark Pull Request Ready for Review check as success
+    if pr.backend_approval_status == 'approved'
+      checks.each do |check|
+        if check[:name].include?('Pull Request Ready for Review') && check[:name].include?('Check Workflow Statuses')
+          check[:status] = 'success'
+        end
+      end
+    end
+  end
+  
   def calculate_overall_status(checks)
     return 'unknown' if checks.empty?
     
-    if checks.any? { |c| ['failure', 'error'].include?(c[:status]) }
+    # Count failures, but exclude specific checks that are expected to fail
+    failing_checks = checks.select do |c| 
+      ['failure', 'error'].include?(c[:status]) &&
+      # Don't count Pull Request Ready for Review as a failure if it's the only one
+      !(c[:name].include?('Pull Request Ready for Review') && c[:name].include?('Check Workflow Statuses'))
+    end
+    
+    if failing_checks.any?
       'failure'
     elsif checks.any? { |c| ['pending', 'queued', 'in_progress'].include?(c[:status]) }
       'pending'

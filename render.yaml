@@ -89,25 +89,4 @@ services:
         sync: false
       - key: ADMIN_TOKEN
         sync: false
-  # Cron job for daily metrics capture
-  - type: cron
-    name: daily-metrics-capture
-    env: docker
-    dockerfilePath: ./Dockerfile.render
-    dockerContext: .
-    schedule: "0 23 * * *" # 11pm UTC daily (6pm EST / 3pm PST)
-    command: "bundle exec rails runner scripts/capture_daily_metrics.rb"
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: platform-code-reviews-db
-          property: connectionString
-      - key: RAILS_MASTER_KEY
-        sync: false
-      - key: GITHUB_TOKEN
-        sync: false
-      - key: GITHUB_OWNER
-        sync: false
-      - key: GITHUB_REPO
-        sync: false
 EOF < /dev/null

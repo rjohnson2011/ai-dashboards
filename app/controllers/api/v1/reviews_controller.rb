@@ -1,11 +1,18 @@
 class Api::V1::ReviewsController < ApplicationController
   def index
     begin
+      # Get repository parameters
+      repository_name = params[:repository_name] || ENV['GITHUB_REPO']
+      repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
+      
+      # Build query scope for the specific repository
+      base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+      
       # Fetch open PRs that do NOT have backend approval
-      open_pull_requests = PullRequest.open.where(backend_approval_status: 'not_approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
+      open_pull_requests = base_scope.open.where(backend_approval_status: 'not_approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
       # Fetch backend approved PRs separately
-      approved_pull_requests = PullRequest.open.where(backend_approval_status: 'approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
+      approved_pull_requests = base_scope.open.where(backend_approval_status: 'approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
       # Don't trigger job on page load anymore - handled by cron
       
@@ -16,7 +23,7 @@ class Api::V1::ReviewsController < ApplicationController
           approved_pull_requests: [],
           count: 0,
           approved_count: 0,
-          repository: "#{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}",
+          repository: "#{repository_owner}/#{repository_name}",
           message: "Data is being refreshed. Please check back in a few minutes.",
           last_updated: nil,
           updating: true
@@ -109,7 +116,7 @@ class Api::V1::ReviewsController < ApplicationController
       approved_pr_data = approved_pull_requests.map(&format_pr)
       
       # Get rate limit info
-      github_service = GithubService.new
+      github_service = GithubService.new(owner: repository_owner, repo: repository_name)
       rate_limit_info = github_service.rate_limit rescue nil
       
       # Get the actual refresh completion time
@@ -170,7 +177,10 @@ class Api::V1::ReviewsController < ApplicationController
   end
 
   def show
-    github_service = GithubService.new
+    repository_name = params[:repository_name] || ENV['GITHUB_REPO']
+    repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
+    
+    github_service = GithubService.new(owner: repository_owner, repo: repository_name)
     pr_number = params[:number]
     
     begin
@@ -193,12 +203,14 @@ class Api::V1::ReviewsController < ApplicationController
   def timeline
     begin
       pr_number = params[:number]&.to_i
+      repository_name = params[:repository_name] || ENV['GITHUB_REPO']
+      repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
       
       unless pr_number && pr_number > 0
         return render json: { error: 'Invalid PR number' }, status: :bad_request
       end
       
-      timeline_service = PrTimelineService.new
+      timeline_service = PrTimelineService.new(owner: repository_owner, repo: repository_name)
       timeline_data = timeline_service.get_recent_timeline(pr_number, 5)
       
       render json: {

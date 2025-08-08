@@ -9,14 +9,19 @@ every 15.minutes do
   runner "FetchAllPullRequestsJob.perform_later(repository_name: 'vets-api', repository_owner: 'department-of-veterans-affairs')"
 end
 
-# Capture daily metrics for vets-api at 2 AM every day (including weekends)
+# Capture daily metrics for all repositories at 2 AM every day (including weekends)
 every 1.day, at: '2:00 am' do
-  runner "CaptureDailyMetricsJob.perform_later(repository_name: 'vets-api', repository_owner: 'department-of-veterans-affairs')"
+  runner "CaptureAllDailyMetricsJob.perform_later"
 end
 
 # Fetch backend review group members at 2 AM every day
 every 1.day, at: '2:00 am' do
   runner "FetchBackendReviewGroupJob.perform_later"
+end
+
+# Verify daily metrics were captured - runs at 9 AM to catch any 2 AM failures
+every 1.day, at: '9:00 am' do
+  runner "VerifyDailyMetricsJob.perform_later"
 end
 
 # Fetch data for other repositories hourly (except vets-api which runs every 15 min)

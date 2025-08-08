@@ -18,3 +18,31 @@ end
 every 1.day, at: '2:00 am' do
   runner "FetchBackendReviewGroupJob.perform_later"
 end
+
+# Fetch data for other repositories hourly (except vets-api which runs every 15 min)
+every 1.hour do
+  runner <<-'RUBY'
+    RepositoryConfig.all.each do |repo|
+      next if repo.name == 'vets-api' # Skip vets-api as it has its own schedule
+      
+      FetchAllPullRequestsJob.perform_later(
+        repository_name: repo.name,
+        repository_owner: repo.owner
+      )
+      
+      # Also capture daily metrics if it's a new day
+      last_snapshot = DailySnapshot.where(
+        repository_name: repo.name,
+        repository_owner: repo.owner,
+        snapshot_date: Date.current
+      ).first
+      
+      if last_snapshot.nil?
+        CaptureDailyMetricsJob.perform_later(
+          repository_name: repo.name,
+          repository_owner: repo.owner
+        )
+      end
+    end
+  RUBY
+end

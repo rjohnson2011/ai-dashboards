@@ -5,8 +5,16 @@ class Api::V1::ReviewsController < ApplicationController
       repository_name = params[:repository_name] || ENV['GITHUB_REPO']
       repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
       
+      # Check if repository columns exist (for backwards compatibility)
+      has_repository_columns = PullRequest.column_names.include?('repository_name')
+      
       # Build query scope for the specific repository
-      base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+      if has_repository_columns
+        base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+      else
+        # Fallback for databases without repository columns
+        base_scope = PullRequest
+      end
       
       # Fetch open PRs that do NOT have backend approval
       open_pull_requests = base_scope.open.where(backend_approval_status: 'not_approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
@@ -15,7 +23,7 @@ class Api::V1::ReviewsController < ApplicationController
       approved_pull_requests = base_scope.open.where(backend_approval_status: 'approved').includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
       
       # Check if this is a non-vets-api repository that needs on-demand scraping
-      if repository_name != 'vets-api' && base_scope.count == 0
+      if has_repository_columns && repository_name != 'vets-api' && base_scope.count == 0
         # Check if we've already started scraping recently
         cache_key = "scraping_#{repository_owner}_#{repository_name}"
         unless Rails.cache.read(cache_key)
@@ -141,7 +149,7 @@ class Api::V1::ReviewsController < ApplicationController
         approved_pull_requests: approved_pr_data,
         count: open_pr_data.length,
         approved_count: approved_pr_data.length,
-        repository: "#{ENV['GITHUB_OWNER']}/#{ENV['GITHUB_REPO']}",
+        repository: "#{repository_owner}/#{repository_name}",
         last_updated: last_refresh_time,
         updating: true,
         rate_limit: rate_limit_info ? {
@@ -246,8 +254,16 @@ class Api::V1::ReviewsController < ApplicationController
       repository_name = params[:repository_name] || ENV['GITHUB_REPO']
       repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
       
+      # Check if repository columns exist in DailySnapshot
+      has_repository_columns = DailySnapshot.column_names.include?('repository_name')
+      
       # Get historical snapshots for this repository
-      snapshots = DailySnapshot.last_n_days(days, repository_name: repository_name, repository_owner: repository_owner)
+      if has_repository_columns
+        snapshots = DailySnapshot.last_n_days(days, repository_name: repository_name, repository_owner: repository_owner)
+      else
+        # Fallback for databases without repository columns
+        snapshots = DailySnapshot.last_n_days(days)
+      end
       
       # Format data for the chart
       chart_data = snapshots.map do |snapshot|

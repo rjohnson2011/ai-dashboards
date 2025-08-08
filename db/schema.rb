@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_08_07_032216) do
+ActiveRecord::Schema[8.0].define(version: 2025_08_08_180733) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -69,7 +69,11 @@ ActiveRecord::Schema[8.0].define(version: 2025_08_07_032216) do
     t.integer "prs_approved_during_business_hours", default: 0
     t.datetime "business_hours_start"
     t.datetime "business_hours_end"
-    t.index ["snapshot_date"], name: "index_daily_snapshots_on_snapshot_date", unique: true
+    t.string "repository_name"
+    t.string "repository_owner"
+    t.index ["repository_name"], name: "index_daily_snapshots_on_repository_name"
+    t.index ["repository_owner", "repository_name"], name: "index_daily_snapshots_on_repository_owner_and_repository_name"
+    t.index ["snapshot_date", "repository_owner", "repository_name"], name: "index_daily_snapshots_on_date_and_repository", unique: true
   end
 
   create_table "pull_request_reviews", force: :cascade do |t|

@@ -242,8 +242,12 @@ class Api::V1::ReviewsController < ApplicationController
       # Get the number of days from params, default to 30
       days = params[:days]&.to_i || 30
       
-      # Get historical snapshots
-      snapshots = DailySnapshot.last_n_days(days)
+      # Get repository parameters
+      repository_name = params[:repository_name] || ENV['GITHUB_REPO']
+      repository_owner = params[:repository_owner] || ENV['GITHUB_OWNER']
+      
+      # Get historical snapshots for this repository
+      snapshots = DailySnapshot.last_n_days(days, repository_name: repository_name, repository_owner: repository_owner)
       
       # Format data for the chart
       chart_data = snapshots.map do |snapshot|

@@ -1,8 +1,14 @@
 class DailySnapshot < ApplicationRecord
   validates :snapshot_date, presence: true
-  validates :repository_name, presence: true
-  validates :repository_owner, presence: true
-  validates :snapshot_date, uniqueness: { scope: [ :repository_owner, :repository_name ] }
+  
+  # Only validate repository columns if they exist
+  if column_names.include?("repository_name")
+    validates :repository_name, presence: true
+    validates :repository_owner, presence: true
+    validates :snapshot_date, uniqueness: { scope: [ :repository_owner, :repository_name ] }
+  else
+    validates :snapshot_date, uniqueness: true
+  end
 
   def self.capture_snapshot!(repository_name: nil, repository_owner: nil)
     today = Date.current
@@ -10,7 +16,11 @@ class DailySnapshot < ApplicationRecord
     repository_owner ||= ENV["GITHUB_OWNER"]
 
     # Get current PR statistics for this repository
-    base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+    base_scope = if column_names.include?("repository_name") && PullRequest.column_names.include?("repository_name")
+      PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+    else
+      PullRequest.all
+    end
     total_prs = base_scope.open.count
 
     # Count PRs by approval status
@@ -28,12 +38,17 @@ class DailySnapshot < ApplicationRecord
     pending_review_prs = base_scope.open.where(draft: false).count
 
     # Create or update today's snapshot for this repository
-    snapshot = find_or_initialize_by(
-      snapshot_date: today,
-      repository_name: repository_name,
-      repository_owner: repository_owner
-    )
-    snapshot.update!(
+    if column_names.include?("repository_name")
+      snapshot = find_or_initialize_by(
+        snapshot_date: today,
+        repository_name: repository_name,
+        repository_owner: repository_owner
+      )
+    else
+      snapshot = find_or_initialize_by(snapshot_date: today)
+    end
+    
+    update_attrs = {
       total_prs: total_prs,
       approved_prs: approved_prs,
       prs_with_changes_requested: prs_with_changes_requested,
@@ -41,7 +56,15 @@ class DailySnapshot < ApplicationRecord
       draft_prs: draft_prs,
       failing_ci_prs: failing_ci_prs,
       successful_ci_prs: successful_ci_prs
-    )
+    }
+    
+    # Only add repository columns if they exist
+    if column_names.include?("repository_name")
+      update_attrs[:repository_name] = repository_name
+      update_attrs[:repository_owner] = repository_owner
+    end
+    
+    snapshot.update!(update_attrs)
 
     snapshot
   end

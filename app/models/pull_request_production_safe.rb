@@ -1,27 +1,22 @@
-class PullRequest < ApplicationRecord
-  has_many :check_runs, dependent: :destroy
-  has_many :pull_request_reviews, dependent: :destroy
+# Temporary model for production that doesn't require repository columns
+# This can be used until the migration is run in production
+class PullRequestProductionSafe < ApplicationRecord
+  self.table_name = "pull_requests"
+  
+  has_many :check_runs, foreign_key: :pull_request_id, dependent: :destroy
+  has_many :pull_request_reviews, foreign_key: :pull_request_id, dependent: :destroy
 
+  # Only validate columns that exist in production
   validates :github_id, presence: true
   validates :number, presence: true
-  
-  # Only validate repository columns if they exist
-  if column_names.include?("repository_name")
-    validates :repository_name, presence: true
-    validates :repository_owner, presence: true
-    
-    # Ensure uniqueness per repository
-    validates :number, uniqueness: { scope: [ :repository_owner, :repository_name ] }
-    validates :github_id, uniqueness: { scope: [ :repository_owner, :repository_name ] }
-  else
-    # Simple uniqueness without repository scope
-    validates :number, uniqueness: true
-    validates :github_id, uniqueness: true
-  end
   validates :title, presence: true
   validates :author, presence: true
   validates :state, presence: true
   validates :url, presence: true
+  
+  # Simple uniqueness without repository scope
+  validates :number, uniqueness: true
+  validates :github_id, uniqueness: true
 
   scope :open, -> { where(state: "open") }
   scope :closed, -> { where(state: "closed") }
@@ -30,6 +25,7 @@ class PullRequest < ApplicationRecord
   scope :approved, -> { where.not(approved_at: nil) }
   scope :not_approved, -> { where(approved_at: nil) }
 
+  # Include all the same methods as PullRequest
   def failing_checks
     check_runs.where(status: [ "failure", "error", "cancelled" ])
   end

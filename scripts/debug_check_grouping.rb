@@ -14,7 +14,7 @@ repo = github_service.instance_variable_get(:@repo)
 
 # Get all check runs with full details
 check_runs = client.check_runs_for_ref(
-  "#{owner}/#{repo}", 
+  "#{owner}/#{repo}",
   pr.head_sha,
   accept: 'application/vnd.github.v3+json'
 )
@@ -30,7 +30,7 @@ check_runs.check_runs.each do |run|
     # Try to get workflow name from check suite
     suite_name = run.check_suite.app&.name || 'Unknown App'
     workflow_run_id = run.check_suite.id
-    
+
     # For GitHub Actions, group by workflow
     if suite_name == 'GitHub Actions'
       # Extract workflow name from the URL or other metadata
@@ -44,7 +44,7 @@ check_runs.check_runs.each do |run|
   else
     workflow_key = 'Other Checks'
   end
-  
+
   workflow_groups[workflow_key] ||= []
   workflow_groups[workflow_key] << {
     name: run.name,

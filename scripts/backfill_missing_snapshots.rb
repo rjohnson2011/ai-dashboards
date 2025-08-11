@@ -14,27 +14,27 @@ missing_dates = [
 
 missing_dates.each do |date|
   puts "\nProcessing #{date}..."
-  
+
   # Check if snapshot already exists
   existing = DailySnapshot.find_by(snapshot_date: date)
   if existing
     puts "  Snapshot already exists for #{date}, skipping..."
     next
   end
-  
+
   # Since we can't go back in time to get the exact PR state for those days,
   # we'll interpolate based on the surrounding data
-  
+
   # Get the snapshots before and after
   before_snapshot = DailySnapshot.where('snapshot_date < ?', date).order(snapshot_date: :desc).first
   after_snapshot = DailySnapshot.where('snapshot_date > ?', date).order(snapshot_date: :asc).first
-  
+
   if before_snapshot && after_snapshot
     # Interpolate values between July 31 and Aug 4
     days_between = (after_snapshot.snapshot_date - before_snapshot.snapshot_date).to_i
     days_from_start = (date - before_snapshot.snapshot_date).to_i
     weight = days_from_start.to_f / days_between
-    
+
     # Linear interpolation for each metric
     interpolated_data = {
       total_prs: (before_snapshot.total_prs + (after_snapshot.total_prs - before_snapshot.total_prs) * weight).round,
@@ -49,13 +49,13 @@ missing_dates.each do |date|
       prs_closed_today: rand(25..40),
       prs_merged_today: rand(20..35)
     }
-    
+
     # Create the snapshot
     snapshot = DailySnapshot.create!(
       snapshot_date: date,
       **interpolated_data
     )
-    
+
     puts "  Created snapshot for #{date}:"
     puts "    Total PRs: #{snapshot.total_prs}"
     puts "    Approved PRs: #{snapshot.approved_prs}"

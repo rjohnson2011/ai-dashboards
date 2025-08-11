@@ -20,7 +20,7 @@ total_minutes_per_month = runs_per_month * minutes_per_run
 
 # Cost calculation
 free_tier_minutes = 2000
-billable_minutes = [total_minutes_per_month - free_tier_minutes, 0].max
+billable_minutes = [ total_minutes_per_month - free_tier_minutes, 0 ].max
 cost_per_minute = 0.008
 monthly_cost = billable_minutes * cost_per_minute
 

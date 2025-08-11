@@ -4,107 +4,107 @@ class HybridPrCheckerService
     @github_service = GithubService.new(owner: owner, repo: repo)
     @logger = Logger.new(STDOUT)
   end
-  
+
   def get_accurate_pr_checks(pr)
     @logger.info "Getting accurate checks for PR ##{pr.number}"
-    
+
     # Step 1: Get check runs from API with workflow information
     check_runs = get_check_runs_from_api_v2(pr)
-    
+
     # Step 2: Get commit statuses (for Jenkins, CircleCI, etc.)
     commit_statuses = get_commit_statuses_from_api(pr)
-    
+
     # Step 3: Add special UI-only checks
     special_checks = get_special_ui_checks(pr)
-    
+
     # Step 4: Combine all checks
     all_checks = check_runs + commit_statuses + special_checks
-    
+
     # Step 5: Deduplicate by check name + trigger type
     all_checks = deduplicate_checks(all_checks)
-    
+
     # Step 6: Mark required checks
     mark_required_checks(all_checks)
-    
+
     # Step 7: Adjust backend approval check based on PR's backend approval status
     adjust_backend_approval_check(all_checks, pr)
-    
+
     # Step 8: Adjust Pull Request Ready for Review check if backend approved
     adjust_ready_for_review_check(all_checks, pr)
-    
+
     # Step 9: Calculate summary
     result = {
       checks: all_checks,
       total_checks: all_checks.length,
-      successful_checks: all_checks.count { |c| ['success', 'neutral'].include?(c[:status]) },
-      failed_checks: all_checks.count { |c| ['failure', 'error'].include?(c[:status]) },
-      pending_checks: all_checks.count { |c| ['pending', 'queued', 'in_progress'].include?(c[:status]) },
+      successful_checks: all_checks.count { |c| [ "success", "neutral" ].include?(c[:status]) },
+      failed_checks: all_checks.count { |c| [ "failure", "error" ].include?(c[:status]) },
+      pending_checks: all_checks.count { |c| [ "pending", "queued", "in_progress" ].include?(c[:status]) },
       overall_status: calculate_overall_status(all_checks)
     }
-    
+
     @logger.info "Found #{result[:total_checks]} total checks (#{result[:successful_checks]} success, #{result[:failed_checks]} failed, #{result[:pending_checks]} pending)"
-    
+
     result
   end
-  
+
   private
-  
+
   def get_check_runs_from_api_v2(pr)
     return [] unless pr.head_sha
-    
+
     checks = []
     client = @github_service.instance_variable_get(:@client)
     owner = @github_service.instance_variable_get(:@owner)
     repo = @github_service.instance_variable_get(:@repo)
-    
+
     begin
       # Get check runs with pagination support
       response = client.check_runs_for_ref(
-        "#{owner}/#{repo}", 
+        "#{owner}/#{repo}",
         pr.head_sha,
-        accept: 'application/vnd.github.v3+json',
+        accept: "application/vnd.github.v3+json",
         per_page: 100
       )
-      
+
       response.check_runs.each do |run|
         # Skip cancelled runs (UI doesn't show them)
         # Also skip skipped runs unless they're backend approval (which shows as Expected)
-        next if run.conclusion == 'cancelled'
-        next if run.conclusion == 'skipped' && !run.name.include?('backend approval')
-        
+        next if run.conclusion == "cancelled"
+        next if run.conclusion == "skipped" && !run.name.include?("backend approval")
+
         # Determine status
         status = case run.status
-        when 'completed'
+        when "completed"
           case run.conclusion
-          when 'success' then 'success'
-          when 'failure', 'timed_out' then 'failure'
-          when 'neutral' then 'neutral'
-          when 'skipped'
+          when "success" then "success"
+          when "failure", "timed_out" then "failure"
+          when "neutral" then "neutral"
+          when "skipped"
             # Skipped required checks show as "Expected" in UI
-            if run.name.include?('backend approval')
-              'pending'
+            if run.name.include?("backend approval")
+              "pending"
             else
-              'skipped'
+              "skipped"
             end
-          else 'unknown'
+          else "unknown"
           end
-        when 'in_progress', 'queued' then 'pending'
-        else 'unknown'
+        when "in_progress", "queued" then "pending"
+        else "unknown"
         end
-        
+
         # Determine workflow name
         workflow_name = map_check_to_workflow(run.name)
-        
+
         # Determine trigger type
         trigger_type = determine_trigger_type(run.name, workflow_name)
-        
+
         # Format as UI shows: "Workflow Name / Check Name (trigger_type)"
         ui_name = if workflow_name != run.name
           "#{workflow_name} / #{run.name} (#{trigger_type})"
         else
           run.name
         end
-        
+
         checks << {
           name: ui_name,
           status: status,
@@ -118,39 +118,39 @@ class HybridPrCheckerService
     rescue => e
       @logger.error "Error fetching check runs: #{e.message}"
     end
-    
+
     checks
   end
-  
+
   def get_commit_statuses_from_api(pr)
     return [] unless pr.head_sha
-    
+
     statuses = []
     client = @github_service.instance_variable_get(:@client)
     owner = @github_service.instance_variable_get(:@owner)
     repo = @github_service.instance_variable_get(:@repo)
-    
+
     begin
       # Get commit statuses (legacy API)
       response = client.statuses("#{owner}/#{repo}", pr.head_sha)
-      
+
       # Group by context and take the latest
       grouped = response.group_by(&:context)
-      
+
       grouped.each do |context, status_list|
         latest = status_list.max_by { |s| s.created_at }
-        
+
         status = case latest.state
-        when 'success' then 'success'
-        when 'failure', 'error' then 'failure'
-        when 'pending' then 'pending'
-        else 'unknown'
+        when "success" then "success"
+        when "failure", "error" then "failure"
+        when "pending" then "pending"
+        else "unknown"
         end
-        
+
         statuses << {
           name: context,
           status: status,
-          suite_name: 'Status Checks',
+          suite_name: "Status Checks",
           url: latest.target_url,
           required: false
         }
@@ -158,95 +158,95 @@ class HybridPrCheckerService
     rescue => e
       @logger.error "Error fetching commit statuses: #{e.message}"
     end
-    
+
     statuses
   end
-  
+
   def get_pending_check_suites(pr)
     # GitHub UI doesn't show queued check suites that have never run
     # unless they're required checks. Since we handle required checks
     # separately, we'll return empty here to match the UI behavior.
     []
   end
-  
+
   def deduplicate_checks(all_checks)
     seen_keys = Set.new
     unique_checks = []
-    
+
     all_checks.each do |check|
       # Create unique key based on check name and trigger type
       key = "#{check[:check_name] || check[:name]}-#{check[:trigger_type] || 'unknown'}"
-      
+
       unless seen_keys.include?(key)
         seen_keys.add(key)
         unique_checks << check
       end
     end
-    
+
     unique_checks
   end
-  
+
   def get_special_ui_checks(pr)
     # Special checks that appear in UI but not in API
     special_checks = []
-    
+
     # Code scanning results / CodeQL (only if not already present)
     special_checks << {
       name: "Code scanning results / CodeQL",
-      status: 'success',
+      status: "success",
       suite_name: "Code scanning results",
       url: nil,
       required: false,
       check_name: "Code scanning results / CodeQL",
       trigger_type: "code_scanning"
     }
-    
+
     special_checks
   end
-  
+
   def map_check_to_workflow(check_name)
     # Map check names to their workflow groups as shown in UI
     case check_name
-    when 'Test Results', 'build-and-publish'
-      'Build And Publish Preview Environment'
+    when "Test Results", "build-and-publish"
+      "Build And Publish Preview Environment"
     when /Check Codeowners Additions/, /Check Codeowners Deletions/
-      'Check CODEOWNERS Entries'
-    when 'Test', 'Linting and Security', 'Compare sha', 'Publish Test Results and Coverage'
-      'Code Checks'
-    when 'Succeed if backend approval is confirmed', /^Get PR Data$/
-      'Require backend-review-group approval'
-    when 'Get PR Data', 'Check Backend Requirement', 'Check Workflow Statuses', 'Fetch Pull Request Reviews'
-      'Pull Request Ready for Review'
+      "Check CODEOWNERS Entries"
+    when "Test", "Linting and Security", "Compare sha", "Publish Test Results and Coverage"
+      "Code Checks"
+    when "Succeed if backend approval is confirmed", /^Get PR Data$/
+      "Require backend-review-group approval"
+    when "Get PR Data", "Check Backend Requirement", "Check Workflow Statuses", "Fetch Pull Request Reviews"
+      "Pull Request Ready for Review"
     when /Analyze \(ruby\)/, /Analyze \(javascript\)/
-      'CodeQL'
-    when 'label'
-      'PR Labeler'
-    when 'Danger'
-      'Danger'
-    when 'Audit Service Tags'
-      'Audit Service Tags'
-    when /DataDog/, 'Validate changes to DataDog Service Catalog Files'
-      'Validate DataDog Service Catalog Files'
-    when 'Check and warn'
-      'Warn PR if it deletes a DataDog Service Catalog File'
+      "CodeQL"
+    when "label"
+      "PR Labeler"
+    when "Danger"
+      "Danger"
+    when "Audit Service Tags"
+      "Audit Service Tags"
+    when /DataDog/, "Validate changes to DataDog Service Catalog Files"
+      "Validate DataDog Service Catalog Files"
+    when "Check and warn"
+      "Warn PR if it deletes a DataDog Service Catalog File"
     else
       check_name
     end
   end
-  
+
   def determine_trigger_type(check_name, workflow_name)
     # Determine trigger type based on check and workflow
-    if check_name == 'Test Results' || check_name == 'build-and-publish'
-      'push'
-    elsif workflow_name.include?('backend-review-group') && check_name == 'Succeed if backend approval is confirmed'
-      'pull_request_review'
-    elsif workflow_name == 'Require backend-review-group approval' && check_name == 'Get PR Data'
-      'pull_request_review'
+    if check_name == "Test Results" || check_name == "build-and-publish"
+      "push"
+    elsif workflow_name.include?("backend-review-group") && check_name == "Succeed if backend approval is confirmed"
+      "pull_request_review"
+    elsif workflow_name == "Require backend-review-group approval" && check_name == "Get PR Data"
+      "pull_request_review"
     else
-      'pull_request'
+      "pull_request"
     end
   end
-  
+
   def mark_required_checks(checks)
     # Known required checks - may vary by repository
     # For now, using vets-api patterns as default
@@ -260,34 +260,34 @@ class HybridPrCheckerService
       /Test \(pull_request\)/,
       /Validate changes to DataDog Service Catalog Files/
     ]
-    
+
     checks.each do |check|
       check[:required] = required_patterns.any? { |pattern| check[:name] =~ pattern }
     end
   end
-  
+
   def adjust_backend_approval_check(checks, pr)
     # Find the backend approval check
     backend_check_found = false
-    
+
     checks.each do |check|
-      if check[:name].include?('Succeed if backend approval is confirmed')
+      if check[:name].include?("Succeed if backend approval is confirmed")
         backend_check_found = true
         # Adjust status based on PR's backend approval
-        if pr.backend_approval_status == 'approved'
-          check[:status] = 'success'
+        if pr.backend_approval_status == "approved"
+          check[:status] = "success"
         else
           # Not approved yet - show as pending (Expected)
-          check[:status] = 'pending'
+          check[:status] = "pending"
         end
       end
     end
-    
+
     # If no backend approval check exists, add it as required
     if !backend_check_found
       checks << {
         name: "Require backend-review-group approval / Succeed if backend approval is confirmed (pull_request_review)",
-        status: pr.backend_approval_status == 'approved' ? 'success' : 'pending',
+        status: pr.backend_approval_status == "approved" ? "success" : "pending",
         suite_name: "Require backend-review-group approval",
         url: nil,
         required: true,
@@ -296,36 +296,36 @@ class HybridPrCheckerService
       }
     end
   end
-  
+
   def adjust_ready_for_review_check(checks, pr)
     # If backend is approved, mark Pull Request Ready for Review check as success
-    if pr.backend_approval_status == 'approved'
+    if pr.backend_approval_status == "approved"
       checks.each do |check|
-        if check[:name].include?('Pull Request Ready for Review') && check[:name].include?('Check Workflow Statuses')
-          check[:status] = 'success'
+        if check[:name].include?("Pull Request Ready for Review") && check[:name].include?("Check Workflow Statuses")
+          check[:status] = "success"
         end
       end
     end
   end
-  
+
   def calculate_overall_status(checks)
-    return 'unknown' if checks.empty?
-    
+    return "unknown" if checks.empty?
+
     # Count failures, but exclude specific checks that are expected to fail
-    failing_checks = checks.select do |c| 
-      ['failure', 'error'].include?(c[:status]) &&
+    failing_checks = checks.select do |c|
+      [ "failure", "error" ].include?(c[:status]) &&
       # Don't count Pull Request Ready for Review as a failure if it's the only one
-      !(c[:name].include?('Pull Request Ready for Review') && c[:name].include?('Check Workflow Statuses'))
+      !(c[:name].include?("Pull Request Ready for Review") && c[:name].include?("Check Workflow Statuses"))
     end
-    
+
     if failing_checks.any?
-      'failure'
-    elsif checks.any? { |c| ['pending', 'queued', 'in_progress'].include?(c[:status]) }
-      'pending'
-    elsif checks.all? { |c| ['success', 'neutral'].include?(c[:status]) }
-      'success'
+      "failure"
+    elsif checks.any? { |c| [ "pending", "queued", "in_progress" ].include?(c[:status]) }
+      "pending"
+    elsif checks.all? { |c| [ "success", "neutral" ].include?(c[:status]) }
+      "success"
     else
-      'unknown'
+      "unknown"
     end
   end
 end

@@ -22,7 +22,7 @@ reviews = github_service.pull_request_reviews(pr.number)
 puts "Found #{reviews.count} reviews:"
 reviews.each do |review_data|
   puts "  - #{review_data.user.login}: #{review_data.state} at #{review_data.submitted_at}"
-  
+
   # Update or create review record
   PullRequestReview.find_or_create_by(
     pull_request_id: pr.id,
@@ -49,6 +49,6 @@ if pr.backend_approval_status == 'approved'
                 .where(state: 'APPROVED')
                 .where(user: backend_members)
                 .pluck(:user)
-  
+
   puts "Approved by backend reviewers: #{approvers.join(', ')}"
 end

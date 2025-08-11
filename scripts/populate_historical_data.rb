@@ -13,10 +13,10 @@ base_failing = current_snapshot&.failing_ci_prs || 60
 # Create snapshots for the past 6 days
 6.downto(1) do |days_ago|
   date = days_ago.days.ago.to_date
-  
+
   # Create slightly different values for each day
   variance = rand(-5..5)
-  
+
   snapshot = DailySnapshot.find_or_create_by(snapshot_date: date)
   snapshot.update!(
     total_prs: base_total + variance,
@@ -30,7 +30,7 @@ base_failing = current_snapshot&.failing_ci_prs || 60
     prs_closed_today: rand(20..40),
     prs_merged_today: rand(15..35)
   )
-  
+
   logger.info "Created snapshot for #{date}: Total PRs: #{snapshot.total_prs}, Opened: #{snapshot.prs_opened_today}, Closed: #{snapshot.prs_closed_today}"
 end
 

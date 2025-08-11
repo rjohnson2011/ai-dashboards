@@ -9,7 +9,7 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     # In production, be more specific with your origins
     origins "http://localhost:5173",
-            "http://localhost:5174", 
+            "http://localhost:5174",
             "https://platform-code-reviews-frontend.onrender.com",
             "https://ai-dashboards-frontend.vercel.app",
             /https:\/\/.*\.onrender\.com/,
@@ -17,6 +17,6 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
 
     resource "*",
       headers: :any,
-      methods: [:get, :post, :put, :patch, :delete, :options, :head]
+      methods: [ :get, :post, :put, :patch, :delete, :options, :head ]
   end
 end

@@ -11,10 +11,10 @@ class PrTimelineService
 
     begin
       # Get comments
-      comments = @client.issue_comments("#{@owner}/#{@repo}", pr_number, per_page: 10, direction: 'desc')
+      comments = @client.issue_comments("#{@owner}/#{@repo}", pr_number, per_page: 10, direction: "desc")
       comments.each do |comment|
         activities << {
-          type: 'comment',
+          type: "comment",
           time: comment.created_at,
           actor: comment.user.login,
           text: truncate_text(comment.body, 50),
@@ -26,30 +26,30 @@ class PrTimelineService
       events = @client.issue_events("#{@owner}/#{@repo}", pr_number, per_page: 20)
       events.each do |event|
         next unless event.created_at # Skip events without timestamps
-        
+
         text = case event.event
-        when 'labeled'
+        when "labeled"
           "added label: #{event.label&.name}"
-        when 'unlabeled'
+        when "unlabeled"
           "removed label: #{event.label&.name}"
-        when 'assigned'
+        when "assigned"
           "assigned @#{event.assignee&.login}"
-        when 'closed'
+        when "closed"
           "closed PR"
-        when 'reopened'
+        when "reopened"
           "reopened PR"
-        when 'deployed'
+        when "deployed"
           "deployed"
-        when 'review_requested'
+        when "review_requested"
           "requested review"
         else
-          event.event.to_s.gsub('_', ' ')
+          event.event.to_s.gsub("_", " ")
         end
 
         activities << {
-          type: 'event',
+          type: "event",
           time: event.created_at,
-          actor: event.actor&.login || 'system',
+          actor: event.actor&.login || "system",
           text: text,
           event: event.event
         }
@@ -59,7 +59,7 @@ class PrTimelineService
       commits = @client.pull_request_commits("#{@owner}/#{@repo}", pr_number, per_page: 5)
       commits.last(5).each do |commit|
         activities << {
-          type: 'commit',
+          type: "commit",
           time: commit.commit.author.date,
           actor: commit.author&.login || commit.commit.author.name,
           text: truncate_text(commit.commit.message, 40),
@@ -69,7 +69,7 @@ class PrTimelineService
 
       # Sort by time and get most recent
       sorted = activities.sort_by { |a| a[:time] }.reverse.first(limit)
-      
+
       # Format for display
       sorted.map do |activity|
         time_ago = time_ago_in_words(activity[:time])
@@ -77,7 +77,7 @@ class PrTimelineService
       end
     rescue => e
       Rails.logger.error "Error fetching timeline for PR ##{pr_number}: #{e.message}"
-      ["Error loading timeline"]
+      [ "Error loading timeline" ]
     end
   end
 
@@ -91,7 +91,7 @@ class PrTimelineService
 
   def time_ago_in_words(time)
     return "unknown" unless time
-    
+
     seconds = Time.now - time
     case seconds
     when 0...60

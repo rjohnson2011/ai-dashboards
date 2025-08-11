@@ -9,7 +9,7 @@ class Api::V1::RepositoriesController < ApplicationController
         backend_review_required: repo.backend_review_required?
       }
     end
-    
+
     render json: { repositories: repositories }
   end
 end

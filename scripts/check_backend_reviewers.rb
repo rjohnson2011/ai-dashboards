@@ -11,7 +11,7 @@ if ARGV[0]
   username = ARGV[0]
   is_member = BackendReviewGroupMember.exists?(username: username)
   puts "\nIs #{username} a backend reviewer? #{is_member}"
-  
+
   if !is_member && ARGV[1] == 'add'
     puts "Adding #{username} to backend reviewers..."
     BackendReviewGroupMember.create!(username: username)
@@ -27,7 +27,7 @@ PullRequest.where(backend_approval_status: 'approved')
            .each do |pr|
   reviews = pr.pull_request_reviews.where(state: 'APPROVED')
   backend_reviewers = reviews.joins("INNER JOIN backend_review_group_members ON pull_request_reviews.user = backend_review_group_members.username")
-  
+
   if backend_reviewers.any?
     puts "  PR ##{pr.number}: approved by #{backend_reviewers.pluck(:user).join(', ')}"
   end

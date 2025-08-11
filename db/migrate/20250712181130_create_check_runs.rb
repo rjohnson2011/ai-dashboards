@@ -11,8 +11,8 @@ class CreateCheckRuns < ActiveRecord::Migration[8.0]
 
       t.timestamps
     end
-    
-    add_index :check_runs, [:pull_request_id, :suite_name]
+
+    add_index :check_runs, [ :pull_request_id, :suite_name ]
     add_index :check_runs, :status
     add_index :check_runs, :required
   end

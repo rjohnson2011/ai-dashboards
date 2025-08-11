@@ -1,5 +1,5 @@
 class FetchBackendReviewGroupService
-  TEAM_URL = 'https://api.github.com/orgs/department-of-veterans-affairs/teams/backend-review-group/members'
+  TEAM_URL = "https://api.github.com/orgs/department-of-veterans-affairs/teams/backend-review-group/members"
 
   def self.call
     new.call
@@ -7,15 +7,15 @@ class FetchBackendReviewGroupService
 
   def call
     response = fetch_team_members
-    
+
     if response.success?
       members = response.parsed_response.map do |member|
         {
-          username: member['login'],
-          avatar_url: member['avatar_url']
+          username: member["login"],
+          avatar_url: member["avatar_url"]
         }
       end
-      
+
       BackendReviewGroupMember.refresh_members(members)
       Rails.logger.info "Successfully fetched #{members.size} backend review group members"
       { success: true, count: members.size }
@@ -34,8 +34,8 @@ class FetchBackendReviewGroupService
     HTTParty.get(
       TEAM_URL,
       headers: {
-        'Authorization' => "token #{ENV['GITHUB_ACCESS_TOKEN']}",
-        'Accept' => 'application/vnd.github.v3+json'
+        "Authorization" => "token #{ENV['GITHUB_ACCESS_TOKEN']}",
+        "Accept" => "application/vnd.github.v3+json"
       }
     )
   end

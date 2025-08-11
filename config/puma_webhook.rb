@@ -28,18 +28,18 @@ preload_app! if ENV["RAILS_ENV"] == "production"
 # With webhooks, we only need a cleanup job for old webhook events
 on_worker_boot do
   ActiveRecord::Base.establish_connection if defined?(ActiveRecord)
-  
-  if ENV['RAILS_ENV'] == 'production'
+
+  if ENV["RAILS_ENV"] == "production"
     Thread.new do
       Rails.logger.info "[WebhookCleanup] Starting webhook event cleanup thread..."
       sleep 3600 # Wait 1 hour before first run
-      
+
       loop do
         begin
           # Clean up webhook events older than 7 days
           old_events = WebhookEvent.cleanup_old_events
           Rails.logger.info "[WebhookCleanup] Cleaned up #{old_events} old webhook events"
-          
+
           # Sleep for 24 hours
           sleep(86400)
         rescue => e

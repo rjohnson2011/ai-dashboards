@@ -8,7 +8,7 @@ repo = github_service.instance_variable_get(:@repo)
 
 # Get ALL check runs and suites
 check_runs = client.check_runs_for_ref(
-  "#{owner}/#{repo}", 
+  "#{owner}/#{repo}",
   pr.head_sha,
   accept: 'application/vnd.github.v3+json',
   per_page: 100
@@ -24,7 +24,7 @@ statuses = client.statuses("#{owner}/#{repo}", pr.head_sha)
 
 puts "API Data:"
 puts "- #{check_runs.total_count} check runs"
-puts "- #{check_suites.total_count} check suites"  
+puts "- #{check_suites.total_count} check suites"
 puts "- #{statuses.count} commit statuses"
 
 # Map suite IDs to workflow names
@@ -41,8 +41,8 @@ ui_checks = []
 seen_keys = Set.new
 
 check_runs.check_runs.each do |run|
-  next if ['cancelled', 'skipped'].include?(run.conclusion)
-  
+  next if [ 'cancelled', 'skipped' ].include?(run.conclusion)
+
   # Determine workflow name
   workflow_name = if suite_workflows[run.check_suite&.id]
     suite_workflows[run.check_suite.id]
@@ -79,7 +79,7 @@ check_runs.check_runs.each do |run|
       'Unknown'
     end
   end
-  
+
   # Determine trigger type
   trigger = 'pull_request'
   if run.name == 'Test Results' || run.name == 'build-and-publish'
@@ -87,14 +87,14 @@ check_runs.check_runs.each do |run|
   elsif workflow_name.include?('backend-review-group') && run.name == 'Succeed if backend approval is confirmed'
     trigger = 'pull_request_review'
   end
-  
+
   # Create UI format
   ui_name = "#{workflow_name} / #{run.name} (#{trigger})"
   key = "#{run.name}-#{trigger}"
-  
+
   next if seen_keys.include?(key)
   seen_keys.add(key)
-  
+
   ui_checks << {
     name: ui_name,
     status: run.conclusion || run.status,
@@ -104,9 +104,9 @@ check_runs.check_runs.each do |run|
 end
 
 # Add commit statuses
-['continuous-integration/jenkins/pr-head', 
+[ 'continuous-integration/jenkins/pr-head',
  'continuous-integration/jenkins/branch',
- 'danger/danger'].each do |context|
+ 'danger/danger' ].each do |context|
   status = statuses.find { |s| s.context == context }
   if status && !seen_keys.include?(context)
     seen_keys.add(context)
@@ -131,14 +131,14 @@ end
 end
 
 # Summary
-success = ui_checks.count { |c| ['success', 'neutral'].include?(c[:status]) }
-failure = ui_checks.count { |c| ['failure', 'error'].include?(c[:status]) }
+success = ui_checks.count { |c| [ 'success', 'neutral' ].include?(c[:status]) }
+failure = ui_checks.count { |c| [ 'failure', 'error' ].include?(c[:status]) }
 
 puts "\n=== Results ==="
 puts "Total: #{ui_checks.count} checks"
 puts "#{failure} failing, #{success} successful"
 
 puts "\nAll checks:"
-ui_checks.sort_by { |c| [c[:status] == 'failure' ? 0 : 1, c[:name]] }.each do |check|
+ui_checks.sort_by { |c| [ c[:status] == 'failure' ? 0 : 1, c[:name] ] }.each do |check|
   puts "[#{check[:status]}] #{check[:name]}"
 end

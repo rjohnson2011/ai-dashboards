@@ -37,13 +37,13 @@ end
 begin
   uri = URI("#{BASE_URL}/api/v1/admin/webhook_events?token=#{ADMIN_TOKEN}")
   response = Net::HTTP.get_response(uri)
-  
+
   if response.code == '200'
     data = JSON.parse(response.body)
     puts "✅ Webhook events endpoint is accessible"
     puts "   Total events (24h): #{data['stats']['total_events_24h']}"
     puts "   Failed events (24h): #{data['stats']['failed_events_24h']}"
-    
+
     if data['stats']['events_by_type'] && !data['stats']['events_by_type'].empty?
       puts "   Event types received:"
       data['stats']['events_by_type'].each do |type, count|
@@ -52,7 +52,7 @@ begin
     else
       puts "   ⚠️  No webhook events received yet"
     end
-    
+
     if data['recent_events'] && data['recent_events'].any?
       puts "\n   Recent events:"
       data['recent_events'].first(5).each do |event|
@@ -74,7 +74,7 @@ end
 begin
   uri = URI("#{BASE_URL}/api/v1/reviews")
   response = Net::HTTP.get_response(uri)
-  
+
   if response.code == '200'
     data = JSON.parse(response.body)
     puts "\n✅ PR data endpoint is accessible"

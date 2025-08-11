@@ -29,9 +29,9 @@ preload_app! if ENV["RAILS_ENV"] == "production"
 # This prevents rate limit issues from the web service IP
 on_worker_boot do
   ActiveRecord::Base.establish_connection if defined?(ActiveRecord)
-  
+
   # Log that we're using cron jobs instead
-  if ENV['RAILS_ENV'] == 'production'
+  if ENV["RAILS_ENV"] == "production"
     Rails.logger.info "[Puma] Started - Updates handled by Render cron jobs"
   end
 end

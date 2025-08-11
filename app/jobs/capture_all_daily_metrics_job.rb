@@ -3,13 +3,13 @@ class CaptureAllDailyMetricsJob < ApplicationJob
 
   def perform
     Rails.logger.info "[CaptureAllDailyMetricsJob] Starting daily metrics capture for all repositories at #{Time.current}"
-    
+
     successful_captures = 0
     failed_captures = 0
-    
+
     RepositoryConfig.all.each do |repo|
       Rails.logger.info "[CaptureAllDailyMetricsJob] Capturing metrics for #{repo.full_name}"
-      
+
       begin
         CaptureDailyMetricsJob.perform_now(
           repository_name: repo.name,
@@ -23,7 +23,7 @@ class CaptureAllDailyMetricsJob < ApplicationJob
         Rails.logger.error e.backtrace.first(5).join("\n")
       end
     end
-    
+
     Rails.logger.info "[CaptureAllDailyMetricsJob] Completed. Successful: #{successful_captures}, Failed: #{failed_captures}"
   end
 end

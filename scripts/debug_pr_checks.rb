@@ -33,7 +33,7 @@ logger.info "\n=== Direct API Calls ==="
 logger.info "\n1. Check Runs API:"
 begin
   check_runs = client.check_runs_for_ref(
-    "#{owner}/#{repo}", 
+    "#{owner}/#{repo}",
     pr.head_sha,
     accept: 'application/vnd.github.v3+json'
   )

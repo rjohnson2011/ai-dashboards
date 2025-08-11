@@ -10,7 +10,7 @@ puts "Total cron job logs in database: #{total_logs}"
 if total_logs > 0
   puts "\nLast 20 cron job executions:"
   puts "-" * 100
-  
+
   CronJobLog.order(created_at: :desc).limit(20).each do |log|
     puts "Started: #{log.started_at&.strftime('%Y-%m-%d %H:%M:%S')} | Status: #{log.status}"
     puts "  Completed: #{log.completed_at&.strftime('%Y-%m-%d %H:%M:%S') || 'N/A'}"
@@ -62,7 +62,7 @@ puts "\n=== CHECKING BACKGROUND JOBS ===\n"
 job_file = File.join(Rails.root, 'app', 'jobs', 'capture_daily_metrics_job.rb')
 if File.exist?(job_file)
   puts "CaptureDailyMetricsJob exists"
-  
+
   # Try to see if we can check Solid Queue scheduled jobs
   begin
     # This might not work if Solid Queue isn't configured, but let's try

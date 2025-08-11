@@ -11,13 +11,13 @@ puts "GITHUB_REPO: #{ENV['GITHUB_REPO']}"
 
 if ENV['GITHUB_TOKEN'].present?
   require 'octokit'
-  
+
   begin
     client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'])
     user = client.user
     puts "\n✅ Token is valid!"
     puts "Authenticated as: #{user.login}"
-    
+
     rate_limit = client.rate_limit
     puts "\nRate limit info:"
     puts "  Limit: #{rate_limit.limit}"

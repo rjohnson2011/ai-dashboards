@@ -55,7 +55,7 @@ begin
   client = Octokit::Client.new(access_token: token)
   user = client.user
   puts "SUCCESS! Authenticated as: #{user.login}"
-  
+
   rate = client.rate_limit
   puts "Rate limit: #{rate.remaining}/#{rate.limit}"
 rescue => e

@@ -10,7 +10,7 @@ puts "Total daily snapshots in database: #{total_snapshots}"
 if total_snapshots > 0
   puts "\nAvailable snapshots:"
   puts "-" * 80
-  
+
   DailySnapshot.order(snapshot_date: :desc).each do |snapshot|
     puts "Date: #{snapshot.snapshot_date}"
     puts "  - Total PRs: #{snapshot.total_prs}"
@@ -24,10 +24,10 @@ if total_snapshots > 0
     puts "  - PRs merged today: #{snapshot.prs_merged_today || 0}"
     puts "-" * 80
   end
-  
+
   # Show what the API would return for 7 days
   puts "\n\n=== SIMULATING API RESPONSE FOR /api/v1/reviews/historical?days=7 ===\n"
-  
+
   snapshots = DailySnapshot.last_n_days(7)
   chart_data = snapshots.map do |snapshot|
     {
@@ -44,16 +44,16 @@ if total_snapshots > 0
       prs_merged_today: snapshot.prs_merged_today || 0
     }
   end
-  
+
   api_response = {
     data: chart_data,
     period: "7 days",
     start_date: 7.days.ago.to_date.to_s,
     end_date: Date.current.to_s
   }
-  
+
   puts JSON.pretty_generate(api_response)
-  
+
   puts "\n\nNumber of days with data available: #{chart_data.length}"
   puts "Chart will use #{chart_data.length < 7 ? 'MOCK DATA' : 'REAL DATA'} (needs at least 7 days)"
 else

@@ -43,17 +43,17 @@ def sync_pr_data(logger)
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = true
   http.read_timeout = 300 # 5 minute timeout for full sync
-  
+
   request = Net::HTTP::Post.new(uri)
   request['Content-Type'] = 'application/json'
   request.body = { token: ADMIN_TOKEN }.to_json
-  
+
   logger.info "Starting PR data sync..."
   start_time = Time.now
-  
+
   response = http.request(request)
   duration = (Time.now - start_time).round(2)
-  
+
   if response.code == '200'
     data = JSON.parse(response.body) rescue {}
     logger.info "Sync completed in #{duration}s"
@@ -87,7 +87,7 @@ consecutive_failures = 0
 loop do
   begin
     success = sync_pr_data(logger)
-    
+
     if success
       consecutive_failures = 0
     else
@@ -97,13 +97,13 @@ loop do
         sleep(300) # Wait 5 minutes on repeated failures
       end
     end
-    
+
     next_sync = Time.now + SYNC_INTERVAL
     logger.info "Next sync at: #{next_sync.strftime('%H:%M:%S')}"
     logger.info "-" * 50
-    
+
     sleep(SYNC_INTERVAL)
-    
+
   rescue => e
     logger.error "Unexpected error: #{e.message}"
     logger.error e.backtrace.first(5).join("\n")

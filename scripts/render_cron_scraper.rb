@@ -36,11 +36,11 @@ begin
     started_at: Time.current
   )
   logger.info "Cron job log ID: #{cron_log.id}"
-  
+
   # Test database connection
   ActiveRecord::Base.connection.execute("SELECT 1")
   logger.info "Database connection successful"
-  
+
   # Check our IP (for debugging rate limits)
   begin
     ip_response = Net::HTTP.get(URI('https://api.ipify.org?format=json'))
@@ -49,13 +49,13 @@ begin
   rescue => e
     logger.warn "Could not determine IP: #{e.message}"
   end
-  
+
   # Initialize services with detailed error handling
   begin
     logger.info "Creating GitHub client..."
     github_service = GithubService.new
     logger.info "GitHub client created successfully"
-    
+
     scraper_service = EnhancedGithubScraperService.new
     hybrid_service = HybridPrCheckerService.new
   rescue => e
@@ -63,7 +63,7 @@ begin
     logger.error "This usually means the token is invalid or malformed"
     raise e
   end
-  
+
   # Check rate limit before starting
   begin
     logger.info "Checking rate limit..."
@@ -72,43 +72,43 @@ begin
   rescue Octokit::Unauthorized => e
     logger.error "GitHub authentication failed: #{e.message}"
     logger.error "Token appears to be invalid or expired"
-    
+
     # Try a raw API call to debug
     require 'net/http'
     uri = URI('https://api.github.com/rate_limit')
     req = Net::HTTP::Get.new(uri)
     req['Authorization'] = "token #{ENV['GITHUB_TOKEN']}"
-    
+
     res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
       http.request(req)
     end
-    
+
     logger.error "Raw API response: #{res.code} - #{res.message}"
     logger.error "Response body: #{res.body[0..200]}..." if res.body
     raise "GitHub authentication failed"
   end
-  
+
   if rate_limit.remaining < 100
     logger.error "Low API rate limit (#{rate_limit.remaining}), exiting"
     raise "API rate limit too low"
   end
-  
+
   # Step 1: Fetch all open PRs
   logger.info "Fetching open pull requests..."
   start_time = Time.now
-  
+
   open_prs = github_service.all_pull_requests(state: 'open')
   logger.info "Found #{open_prs.count} open PRs (took #{(Time.now - start_time).round(2)}s)"
-  
+
   # Step 2: Update or create PR records
   logger.info "Updating PR records..."
   new_count = 0
   updated_count = 0
-  
+
   open_prs.each do |pr_data|
     pr = PullRequest.find_or_initialize_by(number: pr_data.number)
     is_new = pr.new_record?
-    
+
     update_attrs = {
       github_id: pr_data.id,
       title: pr_data.title,
@@ -119,23 +119,23 @@ begin
       pr_updated_at: pr_data.updated_at,
       draft: pr_data.draft || false
     }
-    
+
     # Only add head_sha if column exists (for migration compatibility)
     if pr.has_attribute?(:head_sha)
       update_attrs[:head_sha] = pr_data.head.sha
     end
-    
+
     pr.update!(update_attrs)
-    
+
     is_new ? new_count += 1 : updated_count += 1
   end
-  
+
   logger.info "Created #{new_count} new PRs, updated #{updated_count} existing PRs"
-  
+
   # Step 3: Clean up closed/merged PRs
   logger.info "Cleaning up closed/merged PRs..."
   cleanup_count = 0
-  
+
   PullRequest.where(state: 'open').find_each do |pr|
     github_pr = open_prs.find { |p| p.number == pr.number }
     if github_pr.nil?
@@ -149,29 +149,29 @@ begin
       end
     end
   end
-  
+
   logger.info "Cleaned up #{cleanup_count} closed/merged PRs"
-  
+
   # Step 4: Scrape checks for each PR (in batches to avoid timeouts)
   logger.info "Scraping PR checks..."
   scrape_errors = 0
   scrape_success = 0
-  
+
   # Process in smaller batches
   total_prs = PullRequest.where(state: 'open').count
   processed = 0
-  
+
   PullRequest.where(state: 'open').find_in_batches(batch_size: 10) do |batch|
     logger.info "Processing batch: PRs #{processed + 1}-#{processed + batch.size} of #{total_prs}"
-    
+
     batch.each do |pr|
       begin
         processed += 1
         logger.info "[#{processed}/#{total_prs}] Getting accurate checks for PR ##{pr.number}: #{pr.title[0..50]}..."
-        
+
         # Use hybrid checker for accurate results
         result = hybrid_service.get_accurate_pr_checks(pr)
-        
+
         # Update PR with check counts
         pr.update!(
           ci_status: result[:overall_status] || 'unknown',
@@ -180,7 +180,7 @@ begin
           failed_checks: result[:failed_checks] || 0,
           pending_checks: result[:pending_checks] || 0
         )
-        
+
         # Store failing checks in cache (disabled in production due to solid_cache setup)
         # TODO: Enable after running cache migrations
         # if result[:failed_checks] > 0 && result[:checks].any?
@@ -189,7 +189,7 @@ begin
         # else
         #   Rails.cache.delete("pr_#{pr.id}_failing_checks")
         # end
-        
+
         # Clear existing check runs and save new ones
         pr.check_runs.destroy_all
         result[:checks].each do |check|
@@ -202,34 +202,34 @@ begin
             suite_name: check[:suite_name]
           )
         end
-        
+
         scrape_success += 1
-        
+
         # Small delay between requests
         sleep 0.5
-        
+
       rescue => e
         logger.error "Error scraping PR ##{pr.number}: #{e.message}"
         scrape_errors += 1
       end
     end
-    
+
     # Pause between batches
     logger.info "Completed batch, pausing..."
     sleep 2
   end
-  
+
   logger.info "Scraped #{scrape_success} PRs successfully, #{scrape_errors} errors"
-  
+
   # Step 5: Update PR reviews and approval statuses
   logger.info "Updating PR reviews and approval statuses..."
   review_errors = 0
-  
+
   PullRequest.where(state: 'open').find_each do |pr|
     begin
       # Fetch reviews
       reviews = github_service.pull_request_reviews(pr.number)
-      
+
       # Update reviews
       reviews.each do |review_data|
         PullRequestReview.find_or_create_by(
@@ -241,33 +241,33 @@ begin
           submitted_at: review_data.submitted_at
         )
       end
-      
+
       # Update statuses
       pr.update_backend_approval_status!
       pr.update_ready_for_backend_review!
       pr.update_approval_status!
-      
+
     rescue => e
       logger.error "Error updating reviews for PR ##{pr.number}: #{e.message}"
       review_errors += 1
     end
   end
-  
+
   # Step 6: Update cache with completion time (disabled in production)
   # TODO: Enable after running cache migrations
   # Rails.cache.write('last_refresh_time', Time.current)
-  
+
   # Clean up old webhook events if they exist
   if defined?(WebhookEvent)
     old_events = WebhookEvent.cleanup_old_events
     logger.info "Cleaned up #{old_events} old webhook events"
   end
-  
+
   # Final stats
   total_time = Time.now - start_time
   final_rate_limit = github_service.rate_limit
   api_calls_used = rate_limit.remaining - final_rate_limit.remaining
-  
+
   logger.info "=" * 60
   logger.info "Cron job completed successfully!"
   logger.info "Total time: #{total_time.round(2)} seconds"
@@ -275,11 +275,11 @@ begin
   logger.info "Remaining API calls: #{final_rate_limit.remaining}/#{final_rate_limit.limit}"
   logger.info "Review errors: #{review_errors}"
   logger.info "=" * 60
-  
+
   # Run daily metrics capture once per day between 7-8am UTC (when this job runs at 7am)
   current_hour = Time.current.utc.hour
   today = Date.current
-  
+
   if current_hour == 7 && !DailySnapshot.exists?(snapshot_date: today)
     logger.info "Running daily metrics capture for #{today}..."
     begin
@@ -289,7 +289,7 @@ begin
       logger.error "Failed to capture daily metrics: #{e.message}"
     end
   end
-  
+
   # Update log entry
   cron_log.update!(
     status: 'completed',
@@ -297,9 +297,9 @@ begin
     prs_processed: scrape_success + scrape_errors,
     prs_updated: scrape_success
   )
-  
+
   # Script completed successfully - no need to exit when using rails runner
-  
+
 rescue StandardError => e
   logger.error "="*60
   logger.error "FATAL ERROR IN CRON JOB"
@@ -311,7 +311,7 @@ rescue StandardError => e
   logger.error "Full Backtrace:"
   logger.error e.backtrace&.join("\n")
   logger.error "="*60
-  
+
   # Log to database for persistence
   begin
     if defined?(cron_log) && cron_log
@@ -335,7 +335,7 @@ rescue StandardError => e
   rescue => log_error
     logger.error "Could not log to database: #{log_error.message}"
   end
-  
+
   raise e  # Re-raise the error for rails runner to handle
 rescue Exception => e
   # Catch absolutely everything

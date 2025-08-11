@@ -1,32 +1,32 @@
 class GithubService
   def initialize(owner: nil, repo: nil)
-    @client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'])
-    @owner = owner || ENV['GITHUB_OWNER']
-    @repo = repo || ENV['GITHUB_REPO']
+    @client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"])
+    @owner = owner || ENV["GITHUB_OWNER"]
+    @repo = repo || ENV["GITHUB_REPO"]
   end
 
-  def pull_requests(state: 'open', per_page: 100)
+  def pull_requests(state: "open", per_page: 100)
     @client.pull_requests("#{@owner}/#{@repo}", state: state, per_page: per_page)
   rescue Octokit::Error => e
     Rails.logger.error "GitHub API Error: #{e.message}"
     []
   end
 
-  def all_pull_requests(state: 'open')
+  def all_pull_requests(state: "open")
     all_prs = []
     page = 1
-    
+
     loop do
       prs = @client.pull_requests("#{@owner}/#{@repo}", state: state, per_page: 100, page: page)
       break if prs.empty?
-      
+
       all_prs.concat(prs)
       page += 1
-      
+
       # Safety check to prevent infinite loops
       break if page > 10 # Max 1000 PRs
     end
-    
+
     all_prs
   rescue Octokit::Error => e
     Rails.logger.error "GitHub API Error: #{e.message}"
@@ -50,7 +50,7 @@ class GithubService
   def pull_request_with_reviews(pr_number)
     pr = @client.pull_request("#{@owner}/#{@repo}", pr_number)
     reviews = pull_request_reviews(pr_number)
-    
+
     {
       pr: pr,
       reviews: reviews
@@ -106,7 +106,7 @@ class GithubService
   rescue => e
     Rails.logger.error "Error getting CI status for PR: #{e.message}"
     {
-      overall_status: 'error',
+      overall_status: "error",
       failing_checks: [],
       total_checks: 0
     }

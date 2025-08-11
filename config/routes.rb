@@ -8,25 +8,25 @@ Rails.application.routes.draw do
   # API routes
   namespace :api do
     namespace :v1 do
-      resources :repositories, only: [:index]
-      resources :reviews, only: [:index]
-      get 'pull_requests/:number', to: 'reviews#show'
-      get 'pull_requests/:number/timeline', to: 'reviews#timeline'
-      get 'reviews/status', to: 'reviews#status'
-      post 'reviews/refresh', to: 'reviews#refresh'
-      get 'reviews/historical', to: 'reviews#historical'
-      post 'admin/initialize_data', to: 'admin#initialize_data'
-      post 'admin/update_data', to: 'admin#update_data'
-      post 'admin/update_full_data', to: 'admin#update_full_data'
-      post 'admin/cleanup_merged_prs', to: 'admin#cleanup_merged_prs'
-      post 'admin/update_checks_via_api', to: 'admin#update_checks_via_api'
-      get 'admin/background_job_logs', to: 'admin#background_job_logs'
-      get 'admin/webhook_events', to: 'admin#webhook_events'
-      get 'admin/debug_token', to: 'admin#debug_token'
-      get 'admin/cron_status', to: 'admin#cron_status'
-      
+      resources :repositories, only: [ :index ]
+      resources :reviews, only: [ :index ]
+      get "pull_requests/:number", to: "reviews#show"
+      get "pull_requests/:number/timeline", to: "reviews#timeline"
+      get "reviews/status", to: "reviews#status"
+      post "reviews/refresh", to: "reviews#refresh"
+      get "reviews/historical", to: "reviews#historical"
+      post "admin/initialize_data", to: "admin#initialize_data"
+      post "admin/update_data", to: "admin#update_data"
+      post "admin/update_full_data", to: "admin#update_full_data"
+      post "admin/cleanup_merged_prs", to: "admin#cleanup_merged_prs"
+      post "admin/update_checks_via_api", to: "admin#update_checks_via_api"
+      get "admin/background_job_logs", to: "admin#background_job_logs"
+      get "admin/webhook_events", to: "admin#webhook_events"
+      get "admin/debug_token", to: "admin#debug_token"
+      get "admin/cron_status", to: "admin#cron_status"
+
       # GitHub webhook endpoint
-      post 'github_webhooks', to: 'github_webhooks#create'
+      post "github_webhooks", to: "github_webhooks#create"
     end
   end
 

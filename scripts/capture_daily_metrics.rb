@@ -14,11 +14,11 @@ logger.info "Rails root: #{Rails.root}"
 begin
   # Run the job
   CaptureDailyMetricsJob.perform_now
-  
+
   # Log success
   logger.info "Daily metrics captured successfully"
   logger.info "=== DAILY METRICS CRON JOB COMPLETED ==="
-  
+
   # Also log to cron job log
   CronJobLog.create!(
     status: 'completed',
@@ -28,7 +28,7 @@ begin
 rescue => e
   logger.error "Error capturing daily metrics: #{e.message}"
   logger.error e.backtrace.first(5).join("\n")
-  
+
   # Log failure
   CronJobLog.create!(
     status: 'failed',
@@ -38,6 +38,6 @@ rescue => e
     error_message: e.message,
     error_backtrace: e.backtrace.first(20).join("\n")
   )
-  
+
   exit 1
 end

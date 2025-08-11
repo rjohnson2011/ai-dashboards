@@ -244,12 +244,12 @@ begin
   logger.info "Backend approval changes: #{backend_status_changes}"
   logger.info "API calls used: #{rate_limit.remaining - final_rate_limit.remaining}"
   logger.info "="*60
-  
+
   # Run daily metrics capture at 6pm EST (11pm UTC)
   current_time = Time.current.in_time_zone('America/New_York')
   current_hour_est = current_time.hour
   today = Date.current
-  
+
   # Check if it's between 6-7pm EST and we haven't captured today's snapshot yet
   if current_hour_est == 18 && !DailySnapshot.exists?(snapshot_date: today)
     logger.info "Running daily metrics capture for #{today} at #{current_time.strftime('%I:%M %p %Z')}..."

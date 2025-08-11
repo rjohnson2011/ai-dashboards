@@ -30,7 +30,7 @@ begin
   service = GithubService.new
   rate_limit = service.rate_limit
   puts "  Rate limit: #{rate_limit.remaining}/#{rate_limit.limit}"
-  
+
   pr_count = service.all_pull_requests(state: 'open').count
   puts "  Open PRs in repo: #{pr_count}"
 rescue => e

@@ -3,18 +3,18 @@
 puts "Backfilling missing vets-api snapshots..."
 
 # Backfill missing days for vets-api only
-missing_dates = ['2025-08-05', '2025-08-07', '2025-08-08'].map(&:to_date)
+missing_dates = [ '2025-08-05', '2025-08-07', '2025-08-08' ].map(&:to_date)
 
 missing_dates.each do |date|
   puts "Creating snapshot for #{date}..."
-  
+
   # Use CaptureDailyMetricsJob but override the date
   snapshot = DailySnapshot.find_or_initialize_by(
     snapshot_date: date,
     repository_name: 'vets-api',
     repository_owner: 'department-of-veterans-affairs'
   )
-  
+
   # For today, run the actual job
   if date == Date.current
     CaptureDailyMetricsJob.perform_now(
@@ -27,7 +27,7 @@ missing_dates.each do |date|
       repository_name: 'vets-api',
       repository_owner: 'department-of-veterans-affairs'
     )
-    
+
     snapshot.update!(
       total_prs: base_scope.open.count,
       approved_prs: base_scope.open.select { |pr| pr.approval_summary && pr.approval_summary[:approved_count] > 0 }.count,

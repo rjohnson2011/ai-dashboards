@@ -8,7 +8,7 @@ if pr.nil?
   client = github_service.instance_variable_get(:@client)
   owner = github_service.instance_variable_get(:@owner)
   repo = github_service.instance_variable_get(:@repo)
-  
+
   api_pr = client.pull_request("#{owner}/#{repo}", 23179)
   pr = PullRequest.create!(
     number: 23179,
@@ -36,7 +36,7 @@ reviews = github_service.pull_request_reviews(pr.number)
 puts "Found #{reviews.count} reviews:"
 reviews.each do |review|
   puts "  - #{review.user.login}: #{review.state} at #{review.submitted_at}"
-  
+
   # Save review to database
   PullRequestReview.find_or_create_by(
     pull_request_id: pr.id,
@@ -51,7 +51,7 @@ end
 # Check backend reviewers
 puts "\nChecking backend reviewers..."
 backend_reviewers = %w[
-  rmtolmach jefflembeck Gauravjo klawson88 bkjohnson jmtaber129 
+  rmtolmach jefflembeck Gauravjo klawson88 bkjohnson jmtaber129
   stevenshoen coope93 bosawt penley LindseySaari cjhubbs
 ]
 

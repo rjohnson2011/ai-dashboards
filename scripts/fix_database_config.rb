@@ -7,7 +7,7 @@ puts "DATABASE_URL present: #{ENV['DATABASE_URL'].present?}"
 
 if ENV['DATABASE_URL']
   puts "DATABASE_URL format: #{ENV['DATABASE_URL'].match?(/^postgres/) ? 'Valid PostgreSQL URL' : 'Invalid format'}"
-  
+
   # Parse the URL
   require 'uri'
   uri = URI.parse(ENV['DATABASE_URL'])
@@ -21,7 +21,7 @@ end
 puts "\nTrying direct connection..."
 begin
   require 'pg'
-  
+
   if ENV['DATABASE_URL']
     uri = URI.parse(ENV['DATABASE_URL'])
     conn = PG.connect(
@@ -31,7 +31,7 @@ begin
       user: uri.user,
       password: uri.password
     )
-    
+
     result = conn.exec("SELECT version()")
     puts "✅ Direct connection successful!"
     puts "PostgreSQL version: #{result.first['version']}"
@@ -57,7 +57,7 @@ begin
   ActiveRecord::Base.establish_connection(ENV['DATABASE_URL'])
   ActiveRecord::Base.connection.execute("SELECT 1")
   puts "✅ Rails connection successful!"
-  
+
   # Now try to run pending migrations
   pending = ActiveRecord::Base.connection.migration_context.needs_migration?
   if pending

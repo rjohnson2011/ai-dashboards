@@ -124,7 +124,7 @@ begin
     else
       PullRequest.find_or_initialize_by(number: pr_data.number)
     end
-    
+
     is_new = pr.new_record?
 
     update_attrs = {
@@ -150,7 +150,7 @@ begin
     end
 
     pr.assign_attributes(update_attrs)
-    
+
     # Skip validations if repository columns don't exist
     if has_repository_columns
       pr.save!
@@ -180,13 +180,13 @@ begin
       begin
         actual_pr = github_service.pull_request(pr.number)
         pr.state = actual_pr.merged ? 'merged' : 'closed'
-        
+
         if has_repository_columns
           pr.save!
         else
           pr.save!(validate: false)
         end
-        
+
         cleanup_count += 1
       rescue Octokit::NotFound
         pr.destroy
@@ -225,7 +225,7 @@ begin
           failed_checks: result[:failed_checks] || 0,
           pending_checks: result[:pending_checks] || 0
         )
-        
+
         if has_repository_columns
           pr.save!
         else
@@ -303,14 +303,14 @@ begin
         # Update attributes directly without validation
         pr.backend_approval_status = pr.calculate_backend_approval_status
         pr.ready_for_backend_review = pr.calculate_ready_for_backend_review
-        
+
         # Check approval status
         if pr.fully_approved? && pr.approved_at.nil?
           pr.approved_at = Time.current
         elsif !pr.fully_approved? && pr.approved_at.present?
           pr.approved_at = nil
         end
-        
+
         pr.save!(validate: false)
       end
 

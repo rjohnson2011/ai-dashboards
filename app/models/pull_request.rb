@@ -4,12 +4,12 @@ class PullRequest < ApplicationRecord
 
   validates :github_id, presence: true
   validates :number, presence: true
-  
+
   # Only validate repository columns if they exist
   if column_names.include?("repository_name")
     validates :repository_name, presence: true
     validates :repository_owner, presence: true
-    
+
     # Ensure uniqueness per repository
     validates :number, uniqueness: { scope: [ :repository_owner, :repository_name ] }
     validates :github_id, uniqueness: { scope: [ :repository_owner, :repository_name ] }

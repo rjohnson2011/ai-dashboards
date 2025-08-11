@@ -1,6 +1,6 @@
 class DailySnapshot < ApplicationRecord
   validates :snapshot_date, presence: true
-  
+
   # Only validate repository columns if they exist
   if column_names.include?("repository_name")
     validates :repository_name, presence: true
@@ -47,7 +47,7 @@ class DailySnapshot < ApplicationRecord
     else
       snapshot = find_or_initialize_by(snapshot_date: today)
     end
-    
+
     update_attrs = {
       total_prs: total_prs,
       approved_prs: approved_prs,
@@ -57,13 +57,13 @@ class DailySnapshot < ApplicationRecord
       failing_ci_prs: failing_ci_prs,
       successful_ci_prs: successful_ci_prs
     }
-    
+
     # Only add repository columns if they exist
     if column_names.include?("repository_name")
       update_attrs[:repository_name] = repository_name
       update_attrs[:repository_owner] = repository_owner
     end
-    
+
     snapshot.update!(update_attrs)
 
     snapshot

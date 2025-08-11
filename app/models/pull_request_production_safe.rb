@@ -2,7 +2,7 @@
 # This can be used until the migration is run in production
 class PullRequestProductionSafe < ApplicationRecord
   self.table_name = "pull_requests"
-  
+
   has_many :check_runs, foreign_key: :pull_request_id, dependent: :destroy
   has_many :pull_request_reviews, foreign_key: :pull_request_id, dependent: :destroy
 
@@ -13,7 +13,7 @@ class PullRequestProductionSafe < ApplicationRecord
   validates :author, presence: true
   validates :state, presence: true
   validates :url, presence: true
-  
+
   # Simple uniqueness without repository scope
   validates :number, uniqueness: true
   validates :github_id, uniqueness: true

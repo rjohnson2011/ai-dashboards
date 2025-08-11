@@ -27,6 +27,12 @@ Rails.application.routes.draw do
 
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"
+      
+      # Authentication routes
+      get "auth/github", to: "auth#github"
+      get "auth/github/callback", to: "auth#github_callback"
+      get "auth/me", to: "auth#me"
+      post "auth/logout", to: "auth#logout"
     end
   end
 

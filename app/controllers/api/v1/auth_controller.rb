@@ -1,6 +1,8 @@
 module Api
   module V1
     class AuthController < ApplicationController
+      # Note: No need to skip verify_authenticity_token in API-only apps
+      # This controller handles GitHub OAuth authentication
       
       # GET /api/v1/auth/github
       # Redirects to GitHub OAuth

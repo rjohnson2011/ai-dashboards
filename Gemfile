@@ -42,7 +42,7 @@ gem "thruster", require: false
 gem "rack-cors"
 
 # GitHub API client
-gem "octokit", "~> 9.0"
+gem "octokit", "~> 10.0"
 
 # HTTP client
 gem "faraday", "~> 2.0"

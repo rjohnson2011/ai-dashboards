@@ -1,7 +1,6 @@
 module Api
   module V1
     class AuthController < ApplicationController
-      skip_before_action :verify_authenticity_token, only: [:github_callback]
       
       # GET /api/v1/auth/github
       # Redirects to GitHub OAuth

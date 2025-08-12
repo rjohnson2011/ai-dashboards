@@ -6,7 +6,7 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
   
   # Simple health check
-  get "health" => proc { [200, {"Content-Type" => "application/json"}, [{status: "ok", version: "1.0.2", auth_removed: true}.to_json]] }
+  get "health" => proc { [200, {"Content-Type" => "application/json"}, [{status: "ok", version: "1.0.3", oauth_completely_removed: true}.to_json]] }
 
   # API routes
   namespace :api do

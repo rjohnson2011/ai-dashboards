@@ -253,9 +253,8 @@ begin
     end
   end
 
-  # Step 6: Update cache with completion time (disabled in production)
-  # TODO: Enable after running cache migrations
-  # Rails.cache.write('last_refresh_time', Time.current)
+  # Step 6: Update cache with completion time
+  Rails.cache.write('last_refresh_time', Time.current)
 
   # Clean up old webhook events if they exist
   if defined?(WebhookEvent)

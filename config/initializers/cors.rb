@@ -12,11 +12,14 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
             "http://localhost:5174",
             "https://platform-code-reviews-frontend.onrender.com",
             "https://ai-dashboards-frontend.vercel.app",
+            "https://vetsapi-pr-review.vercel.app",
             /https:\/\/.*\.onrender\.com/,
             /https:\/\/.*\.vercel\.app/
 
     resource "*",
       headers: :any,
-      methods: [ :get, :post, :put, :patch, :delete, :options, :head ]
+      methods: [ :get, :post, :put, :patch, :delete, :options, :head ],
+      expose: [ "Authorization" ],
+      credentials: true
   end
 end

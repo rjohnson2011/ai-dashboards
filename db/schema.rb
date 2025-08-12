@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_08_08_180733) do
+ActiveRecord::Schema[8.0].define(version: 2025_08_11_163202) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -119,6 +119,21 @@ ActiveRecord::Schema[8.0].define(version: 2025_08_08_180733) do
     t.index ["head_sha"], name: "index_pull_requests_on_head_sha"
     t.index ["repository_name"], name: "index_pull_requests_on_repository_name"
     t.index ["repository_owner", "repository_name"], name: "index_pull_requests_on_repository_owner_and_repository_name"
+  end
+
+  create_table "users", force: :cascade do |t|
+    t.bigint "github_id"
+    t.string "github_username"
+    t.string "email"
+    t.string "name"
+    t.string "avatar_url"
+    t.boolean "is_va_member", default: false, null: false
+    t.datetime "last_login_at"
+    t.text "access_token_encrypted"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["github_id"], name: "index_users_on_github_id", unique: true
+    t.index ["github_username"], name: "index_users_on_github_username", unique: true
   end
 
   create_table "webhook_events", force: :cascade do |t|

@@ -4,6 +4,9 @@ Rails.application.routes.draw do
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
   # Can be used by load balancers and uptime monitors to verify that the app is live.
   get "up" => "rails/health#show", as: :rails_health_check
+  
+  # Simple health check
+  get "health" => proc { [200, {"Content-Type" => "application/json"}, [{status: "ok", version: "1.0.3", oauth_completely_removed: true}.to_json]] }
 
   # API routes
   namespace :api do
@@ -27,6 +30,12 @@ Rails.application.routes.draw do
 
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"
+      
+      # Authentication routes - temporarily disabled
+      # get "auth/github", to: "auth#github"
+      # get "auth/github/callback", to: "auth#github_callback"
+      # get "auth/me", to: "auth#me"
+      # post "auth/logout", to: "auth#logout"
     end
   end
 

@@ -45,7 +45,7 @@ gem "rack-cors"
 gem "octokit", "~> 9.0"
 
 # HTTP client
-gem "faraday", "~> 2.0"
+gem "faraday", "~> 2.13"
 gem "faraday-retry"
 
 # Cron job management

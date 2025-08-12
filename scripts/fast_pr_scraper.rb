@@ -225,6 +225,9 @@ begin
     end
   end
 
+  # Update last refresh time in cache
+  Rails.cache.write('last_refresh_time', Time.current)
+  
   # Complete
   execution_time = Time.current - start_time
   final_rate_limit = github_service.rate_limit

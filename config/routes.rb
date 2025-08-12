@@ -6,7 +6,7 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
   
   # Simple health check
-  get "health" => proc { [200, {"Content-Type" => "application/json"}, [{status: "ok", version: "1.0.1"}.to_json]] }
+  get "health" => proc { [200, {"Content-Type" => "application/json"}, [{status: "ok", version: "1.0.2", auth_removed: true}.to_json]] }
 
   # API routes
   namespace :api do
@@ -31,11 +31,11 @@ Rails.application.routes.draw do
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"
       
-      # Authentication routes
-      get "auth/github", to: "auth#github"
-      get "auth/github/callback", to: "auth#github_callback"
-      get "auth/me", to: "auth#me"
-      post "auth/logout", to: "auth#logout"
+      # Authentication routes - temporarily disabled
+      # get "auth/github", to: "auth#github"
+      # get "auth/github/callback", to: "auth#github_callback"
+      # get "auth/me", to: "auth#me"
+      # post "auth/logout", to: "auth#logout"
     end
   end
 

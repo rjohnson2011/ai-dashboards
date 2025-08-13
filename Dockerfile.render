@@ -59,7 +59,9 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # CRITICAL: Force cache bust to fix auth controller error
 ENV FORCE_REBUILD_2024_08_12_REMOVE_OAUTH=true
-RUN echo "Cache bust: $(date +%s)" > /tmp/cache_bust.txt
+ENV FORCE_COMPLETE_REBUILD_TIME=1723523200
+RUN echo "CRITICAL REBUILD: Removing all OAuth code - $(date)" > /tmp/rebuild.log
+RUN echo "This build MUST NOT contain auth_controller.rb" >> /tmp/rebuild.log
 
 # Compile assets (if needed)
 RUN bundle exec rake assets:precompile || true

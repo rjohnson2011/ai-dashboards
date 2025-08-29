@@ -135,7 +135,8 @@ begin
       url: pr_data.html_url,
       pr_created_at: pr_data.created_at,
       pr_updated_at: pr_data.updated_at,
-      draft: pr_data.draft || false
+      draft: pr_data.draft || false,
+      labels: pr_data.labels.map { |label| label.name }
     }
 
     # Only add repository columns if they exist

@@ -129,7 +129,8 @@ class Api::V1::ReviewsController < ApplicationController
           backend_approval_status: pr.backend_approval_status,
           approval_summary: pr.approval_summary,
           ready_for_backend_review: pr.ready_for_backend_review,
-          recent_timeline: timeline_data
+          recent_timeline: timeline_data,
+          labels: pr.labels || []
         }
       end
 

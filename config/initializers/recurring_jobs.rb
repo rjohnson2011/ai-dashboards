@@ -12,7 +12,7 @@ Rails.application.config.after_initialize do
         # Run the job immediately on startup if no PR data exists
         if PullRequest.count == 0
           ActiveJob::Base.queue_adapter.enqueue_at(
-            FetchPullRequestDataJob.new,
+            FetchAllPullRequestsJob.new,
             10.seconds.from_now
           )
           Rails.logger.info "Scheduled initial pull request data fetch"

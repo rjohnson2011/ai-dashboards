@@ -190,7 +190,7 @@ class Api::V1::ReviewsController < ApplicationController
   def refresh
     begin
       # Trigger background refresh job
-      FetchPullRequestDataJob.perform_later
+      FetchAllPullRequestsJob.perform_later
 
       render json: { message: "Refresh started" }
     rescue => e

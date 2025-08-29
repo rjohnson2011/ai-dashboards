@@ -44,7 +44,7 @@ Rails.application.config.after_initialize do
           current_hour = Time.current.hour
           if current_hour == 2
             # Run daily jobs
-            CaptureDailySnapshotJob.perform_later
+            CaptureDailyMetricsJob.perform_later
             FetchBackendReviewGroupJob.perform_later
             Rails.logger.info "[BackgroundJobs] Scheduled daily jobs"
 

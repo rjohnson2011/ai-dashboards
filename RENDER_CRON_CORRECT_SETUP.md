@@ -22,7 +22,7 @@
 - **Name**: `pr-scraper-cron`
 - **Environment**: `Ruby`
 - **Build Command**: `./bin/render-build.sh`
-- **Command**: `bundle exec rails runner scripts/render_cron_scraper.rb`
+- **Command**: `bundle exec rails runner scripts/render_cron_scraper_fixed.rb`
 - **Schedule**: `0,30 13-22 * * MON-FRI`
   - This runs every 30 minutes, 1 PM - 10 PM UTC (9 AM - 6 PM EST)
   - Note: Render uses UTC time!

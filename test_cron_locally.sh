@@ -8,7 +8,7 @@ echo "========================================"
 export RAILS_ENV=development
 
 # Run the scraper
-bundle exec rails runner scripts/render_cron_scraper.rb
+bundle exec rails runner scripts/render_cron_scraper_fixed.rb
 
 echo ""
 echo "Test complete!"

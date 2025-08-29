@@ -114,21 +114,20 @@ begin
   repo_owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
 
   open_prs.each do |pr_data|
-    # Find PR by number only if repository columns don't exist
-    pr = if has_repository_columns
-      PullRequest.find_or_initialize_by(
-        number: pr_data.number,
-        repository_name: repo_name,
-        repository_owner: repo_owner
-      )
-    else
-      PullRequest.find_or_initialize_by(number: pr_data.number)
+    # Find PR by github_id first to avoid duplicate key violations
+    pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
+    
+    # If it's a new record, set the repository info
+    if pr.new_record? && has_repository_columns
+      pr.repository_name = repo_name
+      pr.repository_owner = repo_owner
     end
 
     is_new = pr.new_record?
 
     update_attrs = {
       github_id: pr_data.id,
+      number: pr_data.number,
       title: pr_data.title,
       author: pr_data.user.login,
       state: pr_data.state,

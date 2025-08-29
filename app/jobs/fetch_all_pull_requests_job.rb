@@ -19,14 +19,18 @@ class FetchAllPullRequestsJob < ApplicationJob
 
     # Update or create PR records
     open_prs.each do |pr_data|
-      pr = PullRequest.find_or_initialize_by(
-        number: pr_data.number,
-        repository_name: repository_name || ENV["GITHUB_REPO"],
-        repository_owner: repository_owner || ENV["GITHUB_OWNER"]
-      )
+      # Find by github_id to avoid duplicate key violations
+      pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
+      
+      # Set repository info if it's a new record
+      if pr.new_record?
+        pr.repository_name = repository_name || ENV["GITHUB_REPO"]
+        pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
+      end
 
       pr.update!(
         github_id: pr_data.id,
+        number: pr_data.number,
         title: pr_data.title,
         author: pr_data.user.login,
         state: pr_data.state,

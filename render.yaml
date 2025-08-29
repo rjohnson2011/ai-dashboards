@@ -73,7 +73,7 @@ services:
     dockerfilePath: ./Dockerfile.render
     dockerContext: .
     schedule: "0 7,19 * * *" # 7am and 7pm daily
-    command: "bundle exec rails runner scripts/render_cron_scraper.rb"
+    command: "bundle exec rails runner scripts/render_cron_scraper_fixed.rb"
     envVars:
       - key: DATABASE_URL
         fromDatabase:

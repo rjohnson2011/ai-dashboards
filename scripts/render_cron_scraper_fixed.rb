@@ -217,11 +217,21 @@ begin
   scrape_errors = 0
   scrape_success = 0
 
-  # Process in smaller batches
+  # Process in smaller batches with timeout protection
   total_prs = pr_scope.count
   processed = 0
+  start_time = Time.now
+  max_runtime = 12 * 60 # 12 minutes max runtime (leaving buffer for Render's 15 min limit)
 
-  pr_scope.find_in_batches(batch_size: 10) do |batch|
+  pr_scope.find_in_batches(batch_size: 5) do |batch| # Reduced batch size
+    # Check if we're approaching the time limit
+    elapsed_time = Time.now - start_time
+    if elapsed_time > max_runtime
+      logger.warn "Approaching time limit (#{elapsed_time.round}s elapsed). Stopping to avoid SIGTERM."
+      logger.info "Processed #{processed} of #{total_prs} PRs before timeout"
+      break
+    end
+
     logger.info "Processing batch: PRs #{processed + 1}-#{processed + batch.size} of #{total_prs}"
 
     batch.each do |pr|
@@ -271,8 +281,8 @@ begin
 
         scrape_success += 1
 
-        # Small delay between requests
-        sleep 0.5
+        # Reduced delay between requests
+        sleep 0.2
 
       rescue => e
         logger.error "Error scraping PR ##{pr.number}: #{e.message}"
@@ -280,9 +290,9 @@ begin
       end
     end
 
-    # Pause between batches
+    # Shorter pause between batches
     logger.info "Completed batch, pausing..."
-    sleep 2
+    sleep 1
   end
 
   logger.info "Scraped #{scrape_success} PRs successfully, #{scrape_errors} errors"

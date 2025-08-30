@@ -54,6 +54,21 @@ begin
     logger.warn "Could not determine IP: #{e.message}"
   end
 
+  # Ensure backend team members are populated
+  logger.info "Checking backend team members..."
+  backend_team_members = [
+    'ericboehs', 'LindseySaari', 'rmtolmach', 'stiehlrod',
+    'RachalCassity', 'rjohnson2011', 'stevenjcumming'
+  ]
+  
+  backend_team_members.each do |username|
+    unless BackendReviewGroupMember.exists?(username: username)
+      BackendReviewGroupMember.create!(username: username)
+      logger.info "Added backend team member: #{username}"
+    end
+  end
+  logger.info "Backend team has #{BackendReviewGroupMember.count} members"
+
   # Initialize services with detailed error handling
   begin
     logger.info "Creating GitHub client..."

@@ -293,26 +293,10 @@ begin
         )
       end
 
-      # Update statuses - these methods internally use save!
-      # We need to temporarily skip validations
-      if has_repository_columns
-        pr.update_backend_approval_status!
-        pr.update_ready_for_backend_review!
-        pr.update_approval_status!
-      else
-        # Update attributes directly without validation
-        pr.backend_approval_status = pr.calculate_backend_approval_status
-        pr.ready_for_backend_review = pr.calculate_ready_for_backend_review
-
-        # Check approval status
-        if pr.fully_approved? && pr.approved_at.nil?
-          pr.approved_at = Time.current
-        elsif !pr.fully_approved? && pr.approved_at.present?
-          pr.approved_at = nil
-        end
-
-        pr.save!(validate: false)
-      end
+      # Update statuses - Always update approval summary
+      pr.update_backend_approval_status!
+      pr.update_ready_for_backend_review!
+      pr.update_approval_status!
 
     rescue => e
       logger.error "Error updating reviews for PR ##{pr.number}: #{e.message}"

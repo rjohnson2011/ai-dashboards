@@ -54,6 +54,23 @@ begin
     logger.warn "Could not determine IP: #{e.message}"
   end
 
+  # Fix any PRs with missing repository fields first
+  logger.info "Checking for PRs with missing repository fields..."
+  repo_name = ENV['GITHUB_REPO'] || 'vets-api'
+  repo_owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
+  
+  if has_repository_columns
+    missing_repo_prs = PullRequest.where(repository_name: [nil, ''], repository_owner: [nil, ''])
+    if missing_repo_prs.any?
+      logger.info "Found #{missing_repo_prs.count} PRs with missing repository info - fixing..."
+      missing_repo_prs.update_all(
+        repository_name: repo_name,
+        repository_owner: repo_owner
+      )
+      logger.info "Fixed repository fields for #{missing_repo_prs.count} PRs"
+    end
+  end
+
   # Ensure backend team members are populated
   logger.info "Checking backend team members..."
   backend_team_members = [
@@ -61,20 +78,15 @@ begin
     'RachalCassity', 'rjohnson2011', 'stevenjcumming'
   ]
   
-  # Skip callbacks to avoid triggering PR updates before we have repository info
-  BackendReviewGroupMember.skip_callback(:create, :after, :update_pull_request_approvals)
-  BackendReviewGroupMember.skip_callback(:destroy, :after, :update_pull_request_approvals)
-  
+  # Add missing backend team members without triggering callbacks
   backend_team_members.each do |username|
     unless BackendReviewGroupMember.exists?(username: username)
-      BackendReviewGroupMember.create!(username: username)
+      # Create without callbacks
+      member = BackendReviewGroupMember.new(username: username)
+      member.save!(validate: false)
       logger.info "Added backend team member: #{username}"
     end
   end
-  
-  # Re-enable callbacks
-  BackendReviewGroupMember.set_callback(:create, :after, :update_pull_request_approvals)
-  BackendReviewGroupMember.set_callback(:destroy, :after, :update_pull_request_approvals)
   
   logger.info "Backend team has #{BackendReviewGroupMember.count} members"
 

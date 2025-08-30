@@ -61,12 +61,21 @@ begin
     'RachalCassity', 'rjohnson2011', 'stevenjcumming'
   ]
   
+  # Skip callbacks to avoid triggering PR updates before we have repository info
+  BackendReviewGroupMember.skip_callback(:create, :after, :update_pull_request_approvals)
+  BackendReviewGroupMember.skip_callback(:destroy, :after, :update_pull_request_approvals)
+  
   backend_team_members.each do |username|
     unless BackendReviewGroupMember.exists?(username: username)
       BackendReviewGroupMember.create!(username: username)
       logger.info "Added backend team member: #{username}"
     end
   end
+  
+  # Re-enable callbacks
+  BackendReviewGroupMember.set_callback(:create, :after, :update_pull_request_approvals)
+  BackendReviewGroupMember.set_callback(:destroy, :after, :update_pull_request_approvals)
+  
   logger.info "Backend team has #{BackendReviewGroupMember.count} members"
 
   # Initialize services with detailed error handling

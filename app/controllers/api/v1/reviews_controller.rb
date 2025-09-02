@@ -142,8 +142,24 @@ class Api::V1::ReviewsController < ApplicationController
       github_service = GithubService.new(owner: repository_owner, repo: repository_name)
       rate_limit_info = github_service.rate_limit rescue nil
 
-      # Get the actual refresh completion time
-      last_refresh_time = Rails.cache.read("last_refresh_time") || PullRequest.maximum(:updated_at)
+      # Get the actual refresh completion time from cache
+      cached_refresh_time = Rails.cache.read("last_refresh_time")
+      
+      # Get the most recent PR update time for this repository
+      recent_pr_update = PullRequest
+        .where(repository_owner: repository_owner, repository_name: repository_name)
+        .maximum(:updated_at)
+      
+      # Use the more recent of the two timestamps
+      last_refresh_time = if cached_refresh_time && recent_pr_update
+        [cached_refresh_time, recent_pr_update].max
+      else
+        cached_refresh_time || recent_pr_update || Time.current
+      end
+      
+      # Check if actually updating
+      refresh_status = Rails.cache.read("refresh_status") || {}
+      is_updating = refresh_status[:updating] || false
 
       render json: {
         pull_requests: open_pr_data,
@@ -152,7 +168,7 @@ class Api::V1::ReviewsController < ApplicationController
         approved_count: approved_pr_data.length,
         repository: "#{repository_owner}/#{repository_name}",
         last_updated: last_refresh_time,
-        updating: true,
+        updating: is_updating,
         rate_limit: rate_limit_info ? {
           remaining: rate_limit_info.remaining,
           limit: rate_limit_info.limit,

@@ -23,3 +23,13 @@ repositories:
     name: platform-atlas
     display_name: platform-atlas
     backend_review_required: false
+    
+  - owner: department-of-veterans-affairs
+    name: vets-json-schema
+    display_name: vets-json-schema
+    backend_review_required: false
+    
+  - owner: department-of-veterans-affairs
+    name: vets-api-mockdata
+    display_name: vets-api-mockdata
+    backend_review_required: false

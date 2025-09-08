@@ -130,7 +130,9 @@ class Api::V1::ReviewsController < ApplicationController
           approval_summary: pr.approval_summary,
           ready_for_backend_review: pr.ready_for_backend_review,
           recent_timeline: timeline_data,
-          labels: pr.labels || []
+          labels: pr.labels || [],
+          repository_name: pr.repository_name,
+          repository_owner: pr.repository_owner
         }
       end
 
@@ -144,19 +146,19 @@ class Api::V1::ReviewsController < ApplicationController
 
       # Get the actual refresh completion time from cache
       cached_refresh_time = Rails.cache.read("last_refresh_time")
-      
+
       # Get the most recent PR update time for this repository
       recent_pr_update = PullRequest
         .where(repository_owner: repository_owner, repository_name: repository_name)
         .maximum(:updated_at)
-      
+
       # Use the more recent of the two timestamps
       last_refresh_time = if cached_refresh_time && recent_pr_update
-        [cached_refresh_time, recent_pr_update].max
+        [ cached_refresh_time, recent_pr_update ].max
       else
         cached_refresh_time || recent_pr_update || Time.current
       end
-      
+
       # Check if actually updating
       refresh_status = Rails.cache.read("refresh_status") || {}
       is_updating = refresh_status[:updating] || false

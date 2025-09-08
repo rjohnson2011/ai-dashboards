@@ -4,9 +4,16 @@
 # Set the environment
 set :output, "log/cron.log"
 
-# Run the fetch pull request data job for vets-api every 15 minutes
+# Run the fetch pull request data job for all repositories every 15 minutes
 every 15.minutes do
-  runner "FetchAllPullRequestsJob.perform_later(repository_name: 'vets-api', repository_owner: 'department-of-veterans-affairs')"
+  runner <<-'RUBY'
+    RepositoryConfig.all.each do |repo|
+      FetchAllPullRequestsJob.perform_later(
+        repository_name: repo.name,
+        repository_owner: repo.owner
+      )
+    end
+  RUBY
 end
 
 # Capture daily metrics for all repositories at 2 AM every day (including weekends)
@@ -24,30 +31,3 @@ every 1.day, at: "9:00 am" do
   runner "VerifyDailyMetricsJob.perform_later"
 end
 
-# Fetch data for other repositories hourly (except vets-api which runs every 15 min)
-every 1.hour do
-  runner <<-'RUBY'
-    RepositoryConfig.all.each do |repo|
-      next if repo.name == 'vets-api' # Skip vets-api as it has its own schedule
-
-      FetchAllPullRequestsJob.perform_later(
-        repository_name: repo.name,
-        repository_owner: repo.owner
-      )
-
-      # Also capture daily metrics if it's a new day
-      last_snapshot = DailySnapshot.where(
-        repository_name: repo.name,
-        repository_owner: repo.owner,
-        snapshot_date: Date.current
-      ).first
-
-      if last_snapshot.nil?
-        CaptureDailyMetricsJob.perform_later(
-          repository_name: repo.name,
-          repository_owner: repo.owner
-        )
-      end
-    end
-  RUBY
-end

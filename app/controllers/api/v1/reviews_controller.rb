@@ -2,15 +2,19 @@ class Api::V1::ReviewsController < ApplicationController
   def index
     begin
       # Get repository parameters
-      repository_name = params[:repository_name] || ENV["GITHUB_REPO"]
-      repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]
+      repository_name = params[:repository_name]
+      repository_owner = params[:repository_owner]
 
       # Check if repository columns exist (for backwards compatibility)
       has_repository_columns = PullRequest.column_names.include?("repository_name")
 
-      # Build query scope for the specific repository
-      if has_repository_columns
+      # Build query scope
+      if repository_name && repository_owner && has_repository_columns
+        # Specific repository requested
         base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+      elsif has_repository_columns
+        # No specific repo requested - return all repositories
+        base_scope = PullRequest.all
       else
         # Fallback for databases without repository columns
         base_scope = PullRequest
@@ -43,7 +47,7 @@ class Api::V1::ReviewsController < ApplicationController
           approved_pull_requests: [],
           count: 0,
           approved_count: 0,
-          repository: "#{repository_owner}/#{repository_name}",
+          repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "all",
           message: repository_name == "vets-api" ?
             "Data is being refreshed. Please check back in a few minutes." :
             "Loading data for #{repository_name}. This may take a few minutes for the first load.",
@@ -147,10 +151,14 @@ class Api::V1::ReviewsController < ApplicationController
       # Get the actual refresh completion time from cache
       cached_refresh_time = Rails.cache.read("last_refresh_time")
 
-      # Get the most recent PR update time for this repository
-      recent_pr_update = PullRequest
-        .where(repository_owner: repository_owner, repository_name: repository_name)
-        .maximum(:updated_at)
+      # Get the most recent PR update time
+      recent_pr_update = if repository_name && repository_owner
+        PullRequest
+          .where(repository_owner: repository_owner, repository_name: repository_name)
+          .maximum(:updated_at)
+      else
+        PullRequest.maximum(:updated_at)
+      end
 
       # Use the more recent of the two timestamps
       last_refresh_time = if cached_refresh_time && recent_pr_update
@@ -168,7 +176,7 @@ class Api::V1::ReviewsController < ApplicationController
         approved_pull_requests: approved_pr_data,
         count: open_pr_data.length,
         approved_count: approved_pr_data.length,
-        repository: "#{repository_owner}/#{repository_name}",
+        repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "all",
         last_updated: last_refresh_time,
         updating: is_updating,
         rate_limit: rate_limit_info ? {

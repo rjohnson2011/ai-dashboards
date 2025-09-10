@@ -47,7 +47,7 @@ class Api::V1::ReviewsController < ApplicationController
           approved_pull_requests: [],
           count: 0,
           approved_count: 0,
-          repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "all",
+          repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
           message: repository_name == "vets-api" ?
             "Data is being refreshed. Please check back in a few minutes." :
             "Loading data for #{repository_name}. This may take a few minutes for the first load.",
@@ -176,7 +176,7 @@ class Api::V1::ReviewsController < ApplicationController
         approved_pull_requests: approved_pr_data,
         count: open_pr_data.length,
         approved_count: approved_pr_data.length,
-        repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "all",
+        repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
         last_updated: last_refresh_time,
         updating: is_updating,
         rate_limit: rate_limit_info ? {

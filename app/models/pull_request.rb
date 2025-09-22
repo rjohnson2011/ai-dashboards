@@ -79,24 +79,44 @@ class PullRequest < ApplicationRecord
 
   def calculate_ready_for_backend_review
     # PR is ready for backend review if:
-    # 1. All CI checks are passing (or only backend review check is failing)
+    # 1. All CI checks are passing (or only review-related checks are failing)
     # 2. Has at least one approval from a non-backend reviewer
 
-    # Check if we have failing checks (excluding backend review check)
-    non_backend_failing_checks = if failed_checks.to_i > 0
-      # Look for failing checks that are NOT the backend review check
+    # Review-related checks that shouldn't prevent ready for backend review
+    review_related_checks = [
+      'Pull Request Ready for Review',
+      'Danger',
+      'Status Checks',
+      'Get PR data',
+      'Get PR Data',
+      'Check Workflow Statuses',
+      'Require backend-review-group approval / Get PR Data'
+    ]
+
+    # Check if we have failing checks (excluding review-related checks)
+    non_review_failing_checks = if failed_checks.to_i > 0
+      # Look for failing checks that are NOT review-related
       # Using the check data from cache if available
       failing_check_details = Rails.cache.read("pr_#{id}_failing_checks") || []
       failing_check_details.reject { |check|
-        check[:name]&.downcase&.include?("backend") &&
-        check[:name]&.downcase&.include?("approval")
+        check_name = check[:name] || ""
+        # Exclude backend-related checks
+        check_name.downcase.include?("backend") ||
+        # Exclude danger checks
+        check_name.downcase.include?("danger") ||
+        # Exclude checks in our review-related list (exact match)
+        review_related_checks.include?(check_name) ||
+        # Exclude checks that contain "Get PR Data" anywhere
+        check_name.include?("Get PR Data") ||
+        # Exclude checks that contain "Check Workflow Statuses" anywhere
+        check_name.include?("Check Workflow Statuses")
       }.any?
     else
       false
     end
 
-    # If there are non-backend failing checks, not ready
-    return false if non_backend_failing_checks
+    # If there are non-review failing checks, not ready
+    return false if non_review_failing_checks
 
     # Check if we have approvals from non-backend reviewers
     approved_users = pull_request_reviews

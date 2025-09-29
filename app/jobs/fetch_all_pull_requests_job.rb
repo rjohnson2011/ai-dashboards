@@ -39,7 +39,9 @@ class FetchAllPullRequestsJob < ApplicationJob
         pr_updated_at: pr_data.updated_at,
         draft: pr_data.draft || false,
         repository_name: repository_name || ENV["GITHUB_REPO"],
-        repository_owner: repository_owner || ENV["GITHUB_OWNER"]
+        repository_owner: repository_owner || ENV["GITHUB_OWNER"],
+        labels: pr_data.labels.map(&:name),
+        head_sha: pr_data.head.sha
       )
 
       # Queue job to fetch checks

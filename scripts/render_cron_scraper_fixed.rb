@@ -242,7 +242,7 @@ begin
   total_prs = pr_scope.count
   processed = 0
   start_time = Time.now
-  max_runtime = 12 * 60 # 12 minutes max runtime (leaving buffer for Render's 15 min limit)
+  max_runtime = 13 * 60 # 13 minutes max runtime (leaving buffer for Render's 15 min limit)
 
   pr_scope.find_in_batches(batch_size: 5) do |batch| # Reduced batch size
     # Check if we're approaching the time limit
@@ -300,6 +300,32 @@ begin
           )
         end
 
+        # PRIORITY: Fetch reviews immediately after checks so PR has approvals even if we timeout later
+        begin
+          reviews = github_service.pull_request_reviews(pr.number)
+
+          # Update reviews
+          reviews.each do |review_data|
+            PullRequestReview.find_or_create_by(
+              pull_request_id: pr.id,
+              github_id: review_data.id
+            ).update!(
+              user: review_data.user.login,
+              state: review_data.state,
+              submitted_at: review_data.submitted_at
+            )
+          end
+
+          # Update statuses - Always update approval summary
+          pr.update_backend_approval_status!
+          pr.update_ready_for_backend_review!
+          pr.update_approval_status!
+
+          logger.info "  ✓ Updated reviews and approvals for PR ##{pr.number}"
+        rescue => review_error
+          logger.error "  ✗ Error fetching reviews for PR ##{pr.number}: #{review_error.message}"
+        end
+
         scrape_success += 1
 
         # Reduced delay between requests
@@ -317,40 +343,9 @@ begin
   end
 
   logger.info "Scraped #{scrape_success} PRs successfully, #{scrape_errors} errors"
+  logger.info "Note: Reviews are now fetched inline during check scraping for better reliability"
 
-  # Step 5: Update PR reviews and approval statuses
-  logger.info "Updating PR reviews and approval statuses..."
-  review_errors = 0
-
-  pr_scope.find_each do |pr|
-    begin
-      # Fetch reviews
-      reviews = github_service.pull_request_reviews(pr.number)
-
-      # Update reviews
-      reviews.each do |review_data|
-        PullRequestReview.find_or_create_by(
-          pull_request_id: pr.id,
-          github_id: review_data.id
-        ).update!(
-          user: review_data.user.login,
-          state: review_data.state,
-          submitted_at: review_data.submitted_at
-        )
-      end
-
-      # Update statuses - Always update approval summary
-      pr.update_backend_approval_status!
-      pr.update_ready_for_backend_review!
-      pr.update_approval_status!
-
-    rescue => e
-      logger.error "Error updating reviews for PR ##{pr.number}: #{e.message}"
-      review_errors += 1
-    end
-  end
-
-  # Step 6: Update cache with completion time
+  # Step 5: Update cache with completion time
   Rails.cache.write('last_refresh_time', Time.current)
 
   # Clean up old webhook events if they exist
@@ -369,7 +364,7 @@ begin
   logger.info "Total time: #{total_time.round(2)} seconds"
   logger.info "API calls used: #{api_calls_used}"
   logger.info "Remaining API calls: #{final_rate_limit.remaining}/#{final_rate_limit.limit}"
-  logger.info "Review errors: #{review_errors}"
+  logger.info "PRs processed: #{scrape_success} success, #{scrape_errors} errors"
   logger.info "=" * 60
 
   # Run daily metrics capture once per day between 7-8am UTC (when this job runs at 7am)

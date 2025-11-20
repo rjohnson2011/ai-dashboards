@@ -61,11 +61,82 @@ class FetchAllPullRequestsJob < ApplicationJob
       end
     end
 
+    # Verify PRs in "PRs Needing Team Review" for API lag issues
+    verify_prs_needing_review(github_service, repository_name, repository_owner)
+
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 
   rescue => e
     Rails.logger.error "[FetchAllPullRequestsJob] Error: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
     raise
+  end
+
+  private
+
+  def verify_prs_needing_review(github_service, repository_name, repository_owner)
+    Rails.logger.info "[FetchAllPullRequestsJob] Verifying PRs Needing Team Review for API lag..."
+
+    backend_reviewers = BackendReviewGroupMember.pluck(:username)
+
+    # Find PRs in "PRs Needing Team Review" section for this repository
+    needs_review_prs = PullRequest.where(
+      state: 'open',
+      repository_name: repository_name || ENV["GITHUB_REPO"],
+      repository_owner: repository_owner || ENV["GITHUB_OWNER"]
+    ).select do |pr|
+      pr.backend_approval_status != 'approved' &&
+      !(pr.approval_summary && pr.approval_summary[:approved_users]&.any? { |user| backend_reviewers.include?(user) }) &&
+      !pr.draft &&
+      !(pr.labels && pr.labels.include?('exempt-be-review')) &&
+      !(pr.approval_summary && pr.approval_summary[:approved_count].to_i > 0)
+    end
+
+    Rails.logger.info "[FetchAllPullRequestsJob] Found #{needs_review_prs.count} PRs to verify"
+
+    updated_count = 0
+
+    needs_review_prs.each do |pr|
+      begin
+        # Delete existing reviews to force fresh fetch
+        pr.pull_request_reviews.destroy_all
+
+        # Fetch fresh reviews from GitHub
+        reviews = github_service.pull_request_reviews(pr.number)
+
+        # Create reviews in database
+        reviews.each do |review_data|
+          PullRequestReview.create!(
+            pull_request_id: pr.id,
+            github_id: review_data.id,
+            user: review_data.user.login,
+            state: review_data.state,
+            submitted_at: review_data.submitted_at
+          )
+        end
+
+        # Store old status to check if it changed
+        old_status = pr.backend_approval_status
+
+        # Update approval statuses
+        pr.update_backend_approval_status!
+        pr.update_ready_for_backend_review!
+        pr.update_approval_status!
+
+        # Log if status changed
+        if pr.backend_approval_status != old_status
+          updated_count += 1
+          Rails.logger.info "[FetchAllPullRequestsJob] PR ##{pr.number} status updated: #{old_status} -> #{pr.backend_approval_status}"
+        end
+
+        # Small delay to avoid rate limiting
+        sleep 0.3
+
+      rescue => e
+        Rails.logger.error "[FetchAllPullRequestsJob] Error verifying PR ##{pr.number}: #{e.message}"
+      end
+    end
+
+    Rails.logger.info "[FetchAllPullRequestsJob] Verification complete. Updated #{updated_count} PRs"
   end
 end

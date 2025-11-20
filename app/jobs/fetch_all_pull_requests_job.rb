@@ -21,7 +21,7 @@ class FetchAllPullRequestsJob < ApplicationJob
     open_prs.each do |pr_data|
       # Find by github_id to avoid duplicate key violations
       pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
-      
+
       # Set repository info if it's a new record
       if pr.new_record?
         pr.repository_name = repository_name || ENV["GITHUB_REPO"]
@@ -81,14 +81,14 @@ class FetchAllPullRequestsJob < ApplicationJob
 
     # Find PRs in "PRs Needing Team Review" section for this repository
     needs_review_prs = PullRequest.where(
-      state: 'open',
+      state: "open",
       repository_name: repository_name || ENV["GITHUB_REPO"],
       repository_owner: repository_owner || ENV["GITHUB_OWNER"]
     ).select do |pr|
-      pr.backend_approval_status != 'approved' &&
+      pr.backend_approval_status != "approved" &&
       !(pr.approval_summary && pr.approval_summary[:approved_users]&.any? { |user| backend_reviewers.include?(user) }) &&
       !pr.draft &&
-      !(pr.labels && pr.labels.include?('exempt-be-review')) &&
+      !(pr.labels && pr.labels.include?("exempt-be-review")) &&
       !(pr.approval_summary && pr.approval_summary[:approved_count].to_i > 0)
     end
 

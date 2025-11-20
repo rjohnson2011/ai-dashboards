@@ -29,17 +29,17 @@ class BackendReviewGroupMember < ApplicationRecord
 
   def self.update_all_pr_approvals
     Rails.logger.info "Updating backend approval status for all open PRs..."
-    
+
     # Check if repository columns exist
     has_repository_columns = PullRequest.column_names.include?("repository_name")
-    
+
     # Only update PRs that have repository info if columns exist
     scope = if has_repository_columns
       PullRequest.open.where.not(repository_name: nil, repository_owner: nil)
     else
       PullRequest.open
     end
-    
+
     scope.includes(:pull_request_reviews).find_each do |pr|
       pr.update_backend_approval_status!
     end

@@ -84,13 +84,13 @@ class PullRequest < ApplicationRecord
 
     # Review-related checks that shouldn't prevent ready for backend review
     review_related_checks = [
-      'Pull Request Ready for Review',
-      'Danger',
-      'Status Checks',
-      'Get PR data',
-      'Get PR Data',
-      'Check Workflow Statuses',
-      'Require backend-review-group approval / Get PR Data'
+      "Pull Request Ready for Review",
+      "Danger",
+      "Status Checks",
+      "Get PR data",
+      "Get PR Data",
+      "Check Workflow Statuses",
+      "Require backend-review-group approval / Get PR Data"
     ]
 
     # Check if we have failing checks (excluding review-related checks)

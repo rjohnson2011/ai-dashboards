@@ -1,4 +1,14 @@
 #!/usr/bin/env ruby
+# DEPRECATED: This script is no longer used by Render cron jobs
+#
+# Render now uses scripts/render_cron_wrapper.rb which calls FetchAllPullRequestsJob
+# This ensures all job logic (including new features like verification) automatically applies
+#
+# This file is kept for reference only
+# See RENDER_CRON_SOLUTION.md for details
+#
+# ---
+#
 # Render Cron Job Scraper - Fixed version that handles missing repository columns
 # Runs as a separate job with its own IP allocation
 

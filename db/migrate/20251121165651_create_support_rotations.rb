@@ -12,7 +12,7 @@ class CreateSupportRotations < ActiveRecord::Migration[8.0]
     end
 
     add_index :support_rotations, :sprint_number
-    add_index :support_rotations, [:repository_name, :repository_owner]
-    add_index :support_rotations, [:start_date, :end_date]
+    add_index :support_rotations, [ :repository_name, :repository_owner ]
+    add_index :support_rotations, [ :start_date, :end_date ]
   end
 end

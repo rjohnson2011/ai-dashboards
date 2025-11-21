@@ -68,9 +68,9 @@ begin
   logger.info "Checking for PRs with missing repository fields..."
   repo_name = ENV['GITHUB_REPO'] || 'vets-api'
   repo_owner = ENV['GITHUB_OWNER'] || 'department-of-veterans-affairs'
-  
+
   if has_repository_columns
-    missing_repo_prs = PullRequest.where(repository_name: [nil, ''], repository_owner: [nil, ''])
+    missing_repo_prs = PullRequest.where(repository_name: [ nil, '' ], repository_owner: [ nil, '' ])
     if missing_repo_prs.any?
       logger.info "Found #{missing_repo_prs.count} PRs with missing repository info - fixing..."
       missing_repo_prs.update_all(
@@ -87,7 +87,7 @@ begin
     'ericboehs', 'LindseySaari', 'rmtolmach', 'stiehlrod',
     'RachalCassity', 'rjohnson2011', 'stevenjcumming'
   ]
-  
+
   # Add missing backend team members without triggering callbacks
   backend_team_members.each do |username|
     unless BackendReviewGroupMember.exists?(username: username)
@@ -97,7 +97,7 @@ begin
       logger.info "Added backend team member: #{username}"
     end
   end
-  
+
   logger.info "Backend team has #{BackendReviewGroupMember.count} members"
 
   # Initialize services with detailed error handling
@@ -162,7 +162,7 @@ begin
   open_prs.each do |pr_data|
     # Find PR by github_id first to avoid duplicate key violations
     pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
-    
+
     # If it's a new record, set the repository info
     if pr.new_record? && has_repository_columns
       pr.repository_name = repo_name

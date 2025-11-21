@@ -59,7 +59,7 @@ PullRequest.open.includes(:pull_request_reviews).find_each do |pr|
   pr.update_backend_approval_status!
   pr.reload
   updated_count += 1
-  
+
   if old_status != pr.backend_approval_status
     changed_count += 1
     logger.info "  PR ##{pr.number}: #{old_status} -> #{pr.backend_approval_status}"
@@ -71,7 +71,7 @@ logger.info "  Total PRs updated: #{updated_count}"
 logger.info "  PRs with status changes: #{changed_count}"
 
 # Check specific PRs that were problematic
-problem_prs = [23835, 23857, 23845]
+problem_prs = [ 23835, 23857, 23845 ]
 logger.info "\nChecking problematic PRs:"
 PullRequest.where(number: problem_prs).each do |pr|
   logger.info "  PR ##{pr.number}:"

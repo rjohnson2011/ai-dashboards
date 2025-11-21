@@ -27,6 +27,11 @@ Rails.application.routes.draw do
 
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"
+
+      # Sprint metrics endpoints
+      get "sprint_metrics", to: "sprint_metrics#index"
+      get "sprint_metrics/support_rotations", to: "sprint_metrics#support_rotations"
+      post "sprint_metrics/support_rotations", to: "sprint_metrics#create_support_rotation"
     end
   end
 

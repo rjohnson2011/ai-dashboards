@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_08_29_163214) do
+ActiveRecord::Schema[8.0].define(version: 2025_11_21_165651) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -121,6 +121,20 @@ ActiveRecord::Schema[8.0].define(version: 2025_08_29_163214) do
     t.index ["labels"], name: "index_pull_requests_on_labels", using: :gin
     t.index ["repository_name"], name: "index_pull_requests_on_repository_name"
     t.index ["repository_owner", "repository_name"], name: "index_pull_requests_on_repository_owner_and_repository_name"
+  end
+
+  create_table "support_rotations", force: :cascade do |t|
+    t.integer "sprint_number"
+    t.string "engineer_name"
+    t.date "start_date"
+    t.date "end_date"
+    t.string "repository_name"
+    t.string "repository_owner"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["repository_name", "repository_owner"], name: "idx_on_repository_name_repository_owner_dfe8d3e20e"
+    t.index ["sprint_number"], name: "index_support_rotations_on_sprint_number"
+    t.index ["start_date", "end_date"], name: "index_support_rotations_on_start_date_and_end_date"
   end
 
   create_table "users", force: :cascade do |t|

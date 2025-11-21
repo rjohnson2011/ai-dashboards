@@ -4,8 +4,21 @@ class Api::V1::SprintMetricsController < ApplicationController
     repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]
 
     # Get current sprint
-    current_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
-                     SupportRotation.current_sprint
+    begin
+      current_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
+                       SupportRotation.current_sprint
+    rescue ActiveRecord::StatementInvalid => e
+      # Table doesn't exist yet (migration pending)
+      Rails.logger.error "SupportRotation table not found: #{e.message}"
+      render json: {
+        current_sprint: nil,
+        daily_approvals: [],
+        sprint_totals: {},
+        engineer_totals: [],
+        error: "Sprint metrics feature not yet configured. Migration pending."
+      }, status: :service_unavailable
+      return
+    end
 
     # If no sprint data, return empty state
     unless current_sprint

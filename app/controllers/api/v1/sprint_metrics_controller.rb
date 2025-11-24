@@ -101,16 +101,20 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Get all approvals in the date range for backend team members
     backend_members = BackendReviewGroupMember.pluck(:username)
 
+    # Use EST timezone for date calculations
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
     reviews = PullRequestReview
       .joins(:pull_request)
       .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             start_date.beginning_of_day, end_date.end_of_day)
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
 
-    # Group by date and engineer
-    daily_data = reviews.group_by { |r| r.submitted_at.to_date }
+    # Group by date in EST timezone
+    daily_data = reviews.group_by { |r| r.submitted_at.in_time_zone(est_zone).to_date }
 
     # Build array of daily totals
     (start_date..end_date).map do |date|
@@ -128,12 +132,16 @@ class Api::V1::SprintMetricsController < ApplicationController
   def calculate_sprint_totals(start_date, end_date, repo_name, repo_owner)
     backend_members = BackendReviewGroupMember.pluck(:username)
 
+    # Use EST timezone
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
     total_approvals = PullRequestReview
       .joins(:pull_request)
       .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             start_date.beginning_of_day, end_date.end_of_day)
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
       .count
 
@@ -150,12 +158,16 @@ class Api::V1::SprintMetricsController < ApplicationController
   def calculate_engineer_totals(start_date, end_date, repo_name, repo_owner)
     backend_members = BackendReviewGroupMember.pluck(:username)
 
+    # Use EST timezone
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
     reviews = PullRequestReview
       .joins(:pull_request)
       .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             start_date.beginning_of_day, end_date.end_of_day)
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
 
     # Group by engineer
@@ -173,19 +185,23 @@ class Api::V1::SprintMetricsController < ApplicationController
   def get_approved_prs_by_day(start_date, end_date, repo_name, repo_owner)
     backend_members = BackendReviewGroupMember.pluck(:username)
 
+    # Use EST timezone
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
     # Get all approved reviews in the date range
     reviews = PullRequestReview
       .joins(:pull_request)
       .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             start_date.beginning_of_day, end_date.end_of_day)
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
       .includes(:pull_request)
       .order(:submitted_at)
 
-    # Group by date
-    grouped_by_date = reviews.group_by { |r| r.submitted_at.to_date }
+    # Group by date in EST timezone
+    grouped_by_date = reviews.group_by { |r| r.submitted_at.in_time_zone(est_zone).to_date }
 
     # Build the response
     (start_date..end_date).map do |date|

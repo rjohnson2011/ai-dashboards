@@ -55,6 +55,14 @@ class Api::V1::SprintMetricsController < ApplicationController
       repository_owner
     )
 
+    # Get approved PRs grouped by day
+    approved_prs_by_day = get_approved_prs_by_day(
+      current_sprint.start_date,
+      current_sprint.end_date,
+      repository_name,
+      repository_owner
+    )
+
     render json: {
       current_sprint: {
         sprint_number: current_sprint.sprint_number,
@@ -66,7 +74,8 @@ class Api::V1::SprintMetricsController < ApplicationController
       },
       daily_approvals: daily_approvals,
       sprint_totals: sprint_totals,
-      engineer_totals: engineer_totals
+      engineer_totals: engineer_totals,
+      approved_prs_by_day: approved_prs_by_day
     }
   end
 
@@ -159,6 +168,47 @@ class Api::V1::SprintMetricsController < ApplicationController
         approvals: count
       }
     end.sort_by { |e| -e[:approvals] }
+  end
+
+  def get_approved_prs_by_day(start_date, end_date, repo_name, repo_owner)
+    backend_members = BackendReviewGroupMember.pluck(:username)
+
+    # Get all approved reviews in the date range
+    reviews = PullRequestReview
+      .joins(:pull_request)
+      .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
+      .where(state: "APPROVED")
+      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
+             start_date.beginning_of_day, end_date.end_of_day)
+      .where(user: backend_members)
+      .includes(:pull_request)
+      .order(:submitted_at)
+
+    # Group by date
+    grouped_by_date = reviews.group_by { |r| r.submitted_at.to_date }
+
+    # Build the response
+    (start_date..end_date).map do |date|
+      reviews_on_date = grouped_by_date[date] || []
+
+      prs_on_date = reviews_on_date.map do |review|
+        pr = review.pull_request
+        {
+          number: pr.number,
+          title: pr.title,
+          url: pr.url,
+          author: pr.author,
+          approved_by: review.user,
+          approved_at: review.submitted_at,
+          state: pr.state
+        }
+      end
+
+      {
+        date: date,
+        prs: prs_on_date
+      }
+    end.reject { |day| day[:prs].empty? } # Only include days with PRs
   end
 
   def support_rotation_params

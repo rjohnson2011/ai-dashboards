@@ -24,6 +24,7 @@ Rails.application.routes.draw do
       get "admin/webhook_events", to: "admin#webhook_events"
       get "admin/debug_token", to: "admin#debug_token"
       get "admin/cron_status", to: "admin#cron_status"
+      post "admin/run_task", to: "admin#run_task"
 
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"

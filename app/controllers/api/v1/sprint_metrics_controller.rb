@@ -99,6 +99,7 @@ class Api::V1::SprintMetricsController < ApplicationController
 
   def calculate_daily_approvals(start_date, end_date, repo_name, repo_owner)
     # Get all approvals in the date range for backend team members
+    # Query across ALL repositories, not just the sprint's primary repo
     backend_members = BackendReviewGroupMember.pluck(:username)
 
     # Use EST timezone for date calculations
@@ -106,7 +107,6 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     reviews = PullRequestReview
       .joins(:pull_request)
-      .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
@@ -130,6 +130,7 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def calculate_sprint_totals(start_date, end_date, repo_name, repo_owner)
+    # Query across ALL repositories
     backend_members = BackendReviewGroupMember.pluck(:username)
 
     # Use EST timezone
@@ -137,7 +138,6 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     total_approvals = PullRequestReview
       .joins(:pull_request)
-      .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
@@ -156,6 +156,7 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def calculate_engineer_totals(start_date, end_date, repo_name, repo_owner)
+    # Query across ALL repositories
     backend_members = BackendReviewGroupMember.pluck(:username)
 
     # Use EST timezone
@@ -163,7 +164,6 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     reviews = PullRequestReview
       .joins(:pull_request)
-      .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
@@ -183,15 +183,15 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def get_approved_prs_by_day(start_date, end_date, repo_name, repo_owner)
+    # Query across ALL repositories
     backend_members = BackendReviewGroupMember.pluck(:username)
 
     # Use EST timezone
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
-    # Get all approved reviews in the date range
+    # Get all approved reviews in the date range across all repositories
     reviews = PullRequestReview
       .joins(:pull_request)
-      .where(pull_requests: { repository_name: repo_name, repository_owner: repo_owner })
       .where(state: "APPROVED")
       .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
              est_zone.parse(start_date.to_s).beginning_of_day.utc,

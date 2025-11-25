@@ -1,3 +1,5 @@
+require 'rake'
+
 module Api
   module V1
     class AdminController < ApplicationController
@@ -331,6 +333,29 @@ module Api
         }
       end
 
+      def run_task
+        # Simple auth check
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        task_name = params[:task]
+        task_args = params[:args] || []
+
+        begin
+          # Load Rails tasks
+          Rails.application.load_tasks unless Rake::Task.task_defined?(task_name)
+
+          # Run the rake task
+          Rake::Task[task_name].invoke(*task_args)
+
+          render json: { success: true, message: "Task #{task_name} completed successfully" }
+        rescue => e
+          render json: { success: false, error: e.message }, status: :unprocessable_entity
+        end
+      end
+
       private
 
       def cleanup_merged_prs_internal
@@ -448,26 +473,6 @@ module Api
         end
 
         render json: debug_info
-      end
-
-      def run_task
-        # Simple auth check
-        unless params[:token] == ENV["ADMIN_TOKEN"]
-          render json: { error: "Unauthorized" }, status: :unauthorized
-          return
-        end
-
-        task_name = params[:task]
-        task_args = params[:args] || []
-
-        begin
-          # Run the rake task
-          Rake::Task[task_name].invoke(*task_args)
-
-          render json: { success: true, message: "Task #{task_name} completed successfully" }
-        rescue => e
-          render json: { success: false, error: e.message }, status: :unprocessable_entity
-        end
       end
     end
   end

@@ -2,11 +2,21 @@ class Api::V1::SprintMetricsController < ApplicationController
   def index
     repository_name = params[:repository_name] || ENV["GITHUB_REPO"]
     repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]
+    sprint_offset = (params[:sprint_offset] || 0).to_i
 
-    # Get current sprint
+    # Get sprint (current or offset)
     begin
-      current_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
-                       SupportRotation.current_sprint
+      if sprint_offset == 0
+        current_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
+                         SupportRotation.current_sprint
+      else
+        # Get sprint by offset (negative for past sprints)
+        current_sprint = SupportRotation
+          .where(repository_name: repository_name, repository_owner: repository_owner)
+          .order(start_date: :desc)
+          .offset(-sprint_offset) # Convert negative offset to positive for SQL
+          .first
+      end
     rescue ActiveRecord::StatementInvalid => e
       # Table doesn't exist yet (migration pending)
       Rails.logger.error "SupportRotation table not found: #{e.message}"

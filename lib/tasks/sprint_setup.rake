@@ -8,9 +8,9 @@ namespace :sprint do
     
     puts "Updating sprint data..."
     puts "Sprint ##{sprint_number}: #{engineer} from #{start_date} to #{end_date}"
-    
-    # Delete old sprint data
-    SupportRotation.where("sprint_number < ?", sprint_number).destroy_all
+
+    # Delete old sprint data (both lower and higher sprint numbers)
+    SupportRotation.where("sprint_number != ?", sprint_number).destroy_all
     
     # Create or update current sprint
     rotation = SupportRotation.find_or_initialize_by(sprint_number: sprint_number)

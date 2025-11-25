@@ -63,6 +63,19 @@ class Api::V1::SprintMetricsController < ApplicationController
       repository_owner
     )
 
+    # Get upcoming rotations (next 2)
+    upcoming_rotations = SupportRotation
+      .where("start_date > ?", current_sprint.end_date)
+      .order(start_date: :asc)
+      .limit(2)
+      .map do |rotation|
+        {
+          engineer_name: rotation.engineer_name,
+          start_date: rotation.start_date,
+          end_date: rotation.end_date
+        }
+      end
+
     render json: {
       current_sprint: {
         sprint_number: current_sprint.sprint_number,
@@ -75,7 +88,8 @@ class Api::V1::SprintMetricsController < ApplicationController
       daily_approvals: daily_approvals,
       sprint_totals: sprint_totals,
       engineer_totals: engineer_totals,
-      approved_prs_by_day: approved_prs_by_day
+      approved_prs_by_day: approved_prs_by_day,
+      upcoming_rotations: upcoming_rotations
     }
   end
 

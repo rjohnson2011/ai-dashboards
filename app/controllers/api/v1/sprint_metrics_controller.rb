@@ -73,6 +73,22 @@ class Api::V1::SprintMetricsController < ApplicationController
       repository_owner
     )
 
+    # Get dependabot metrics
+    dependabot_metrics = calculate_dependabot_metrics(
+      current_sprint.start_date,
+      current_sprint.end_date,
+      repository_name,
+      repository_owner
+    )
+
+    # Get approved-but-unmerged PRs count
+    approved_unmerged_count = count_approved_unmerged_prs(
+      current_sprint.start_date,
+      current_sprint.end_date,
+      repository_name,
+      repository_owner
+    )
+
     # Get upcoming rotations (next 2)
     upcoming_rotations = SupportRotation
       .where("start_date > ?", current_sprint.end_date)
@@ -99,6 +115,8 @@ class Api::V1::SprintMetricsController < ApplicationController
       sprint_totals: sprint_totals,
       engineer_totals: engineer_totals,
       approved_prs_by_day: approved_prs_by_day,
+      dependabot_metrics: dependabot_metrics,
+      approved_unmerged_count: approved_unmerged_count,
       upcoming_rotations: upcoming_rotations
     }
   end
@@ -586,6 +604,69 @@ class Api::V1::SprintMetricsController < ApplicationController
     else
       "stable"
     end
+  end
+
+  def calculate_dependabot_metrics(start_date, end_date, repo_name, repo_owner)
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
+    # Find all dependabot PRs that were updated during the sprint
+    # We look for PRs where the author is dependabot[bot] or dependabot
+    dependabot_authors = [ "dependabot[bot]", "dependabot" ]
+
+    # PRs merged during the sprint
+    merged_prs = PullRequest
+      .where(author: dependabot_authors)
+      .where(state: "merged")
+      .where("pr_updated_at >= ? AND pr_updated_at <= ?",
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
+
+    # PRs closed (but not merged) during the sprint
+    closed_prs = PullRequest
+      .where(author: dependabot_authors)
+      .where(state: "closed")
+      .where("pr_updated_at >= ? AND pr_updated_at <= ?",
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
+
+    {
+      merged_count: merged_prs.count,
+      closed_count: closed_prs.count,
+      merged_prs: merged_prs.limit(20).map do |pr|
+        {
+          number: pr.number,
+          title: pr.title,
+          url: pr.url,
+          repository: pr.repository_name
+        }
+      end,
+      closed_prs: closed_prs.limit(20).map do |pr|
+        {
+          number: pr.number,
+          title: pr.title,
+          url: pr.url,
+          repository: pr.repository_name
+        }
+      end
+    }
+  end
+
+  def count_approved_unmerged_prs(start_date, end_date, repo_name, repo_owner)
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
+    # Find PRs that were approved during the sprint but are still open (not merged yet)
+    approved_unmerged = PullRequest
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
+      .where(state: "open")
+      .distinct
+      .count
+
+    approved_unmerged
   end
 
   def support_rotation_params

@@ -64,6 +64,9 @@ class FetchAllPullRequestsJob < ApplicationJob
     # Verify PRs in "PRs Needing Team Review" for API lag issues
     verify_prs_needing_review(github_service, repository_name, repository_owner)
 
+    # Web scraping verification as final check
+    verify_prs_via_html_scraping(repository_name, repository_owner)
+
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 
   rescue => e
@@ -138,5 +141,17 @@ class FetchAllPullRequestsJob < ApplicationJob
     end
 
     Rails.logger.info "[FetchAllPullRequestsJob] Verification complete. Updated #{updated_count} PRs"
+  end
+
+  def verify_prs_via_html_scraping(repository_name, repository_owner)
+    Rails.logger.info "[FetchAllPullRequestsJob] Starting HTML scraping verification..."
+
+    scraper = PrHtmlScraperService.new
+    result = scraper.verify_prs_needing_review_via_html(repository_name, repository_owner)
+
+    Rails.logger.info "[FetchAllPullRequestsJob] HTML scraping complete. Checked: #{result[:total_checked]}, Updated: #{result[:updated]}"
+
+  rescue => e
+    Rails.logger.error "[FetchAllPullRequestsJob] HTML scraping error: #{e.message}"
   end
 end

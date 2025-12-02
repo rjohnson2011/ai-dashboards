@@ -17,8 +17,12 @@ class FetchAllPullRequestsJob < ApplicationJob
     open_prs = github_service.all_pull_requests(state: "open")
     Rails.logger.info "[FetchAllPullRequestsJob] Found #{open_prs.count} open PRs"
 
+    # Filter to only include PRs targeting master branch
+    master_prs = open_prs.select { |pr| pr.base.ref == "master" }
+    Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
+
     # Update or create PR records
-    open_prs.each do |pr_data|
+    master_prs.each do |pr_data|
       # Find by github_id to avoid duplicate key violations
       pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
@@ -44,6 +48,21 @@ class FetchAllPullRequestsJob < ApplicationJob
         head_sha: pr_data.head.sha
       )
 
+      # Fetch and store PR comments
+      begin
+        comments = github_service.pull_request_comments(pr_data.number)
+        comments.each do |comment_data|
+          PullRequestComment.find_or_create_by(github_id: comment_data.id) do |comment|
+            comment.pull_request = pr
+            comment.user = comment_data.user.login
+            comment.body = comment_data.body
+            comment.commented_at = comment_data.created_at
+          end
+        end
+      rescue => e
+        Rails.logger.error "[FetchAllPullRequestsJob] Error fetching comments for PR ##{pr_data.number}: #{e.message}"
+      end
+
       # Queue job to fetch checks
       FetchPullRequestChecksJob.perform_later(pr.id, repository_name: repository_name, repository_owner: repository_owner)
     end
@@ -52,7 +71,7 @@ class FetchAllPullRequestsJob < ApplicationJob
     scope = PullRequest.where(state: "open")
     scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
     scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
-    scope.where.not(number: open_prs.map(&:number)).each do |pr|
+    scope.where.not(number: master_prs.map(&:number)).each do |pr|
       begin
         actual_pr = github_service.pull_request(pr.number)
         pr.update!(state: actual_pr.merged ? "merged" : "closed")

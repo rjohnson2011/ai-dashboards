@@ -136,7 +136,8 @@ class Api::V1::ReviewsController < ApplicationController
           recent_timeline: timeline_data,
           labels: pr.labels || [],
           repository_name: pr.repository_name,
-          repository_owner: pr.repository_owner
+          repository_owner: pr.repository_owner,
+          changes_requested_info: pr.changes_requested_info
         }
       end
 

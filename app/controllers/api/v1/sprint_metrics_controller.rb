@@ -102,6 +102,12 @@ class Api::V1::SprintMetricsController < ApplicationController
         }
       end
 
+    # Get backend-approved and closed PRs for past 6 months
+    backend_approved_closed = calculate_backend_approved_closed_prs(
+      repository_name,
+      repository_owner
+    )
+
     render json: {
       current_sprint: {
         sprint_number: current_sprint.sprint_number,
@@ -117,7 +123,8 @@ class Api::V1::SprintMetricsController < ApplicationController
       approved_prs_by_day: approved_prs_by_day,
       dependabot_metrics: dependabot_metrics,
       approved_unmerged_count: approved_unmerged_count,
-      upcoming_rotations: upcoming_rotations
+      upcoming_rotations: upcoming_rotations,
+      backend_approved_closed: backend_approved_closed
     }
   end
 
@@ -419,7 +426,7 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     {
       average_cycles: cycles_data.any? ? (cycles_data.sum { |c| c[:cycles] } / cycles_data.count.to_f).round(1) : 0,
-      first_time_approval_rate: cycles_data.count { |c| c[:cycles] == 1 }.to_f / [cycles_data.count, 1].max * 100,
+      first_time_approval_rate: cycles_data.count { |c| c[:cycles] == 1 }.to_f / [ cycles_data.count, 1 ].max * 100,
       distribution: cycles_data.group_by { |c| c[:cycles] }.transform_values(&:count).sort.to_h,
       sample_size: cycles_data.count
     }
@@ -593,9 +600,9 @@ class Api::V1::SprintMetricsController < ApplicationController
     return "stable" if values.count < 2
 
     recent_avg = values.last(2).sum / 2.0
-    older_avg = values.first([values.count - 2, 1].max).sum / [values.count - 2, 1].max.to_f
+    older_avg = values.first([ values.count - 2, 1 ].max).sum / [ values.count - 2, 1 ].max.to_f
 
-    diff_pct = ((recent_avg - older_avg) / [older_avg, 1].max * 100).round(1)
+    diff_pct = ((recent_avg - older_avg) / [ older_avg, 1 ].max * 100).round(1)
 
     if diff_pct > 10
       "increasing"
@@ -667,6 +674,69 @@ class Api::V1::SprintMetricsController < ApplicationController
       .count
 
     approved_unmerged
+  end
+
+  def calculate_backend_approved_closed_prs(repo_name, repo_owner)
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    six_months_ago = 6.months.ago
+
+    # Find PRs that:
+    # 1. Were approved by backend review group members
+    # 2. Are now closed or merged
+    # 3. Were updated in the past 6 months
+    backend_approved_and_closed = PullRequest
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+      .where(state: ["closed", "merged"])
+      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+      .where(repository_name: repo_name, repository_owner: repo_owner)
+      .distinct
+      .order(pr_updated_at: :desc)
+
+    # Group by month and status
+    monthly_data = backend_approved_and_closed.group_by do |pr|
+      pr.pr_updated_at.beginning_of_month
+    end
+
+    # Calculate stats for each month
+    monthly_stats = monthly_data.map do |month, prs|
+      merged_count = prs.count { |pr| pr.state == "merged" }
+      closed_count = prs.count { |pr| pr.state == "closed" }
+
+      {
+        month: month.strftime("%B %Y"),
+        month_date: month.to_date,
+        total: prs.count,
+        merged: merged_count,
+        closed: closed_count,
+        prs: prs.first(20).map do |pr|
+          {
+            number: pr.number,
+            title: pr.title,
+            url: pr.url,
+            state: pr.state,
+            author: pr.author,
+            closed_at: pr.pr_updated_at,
+            approved_by: pr.pull_request_reviews
+              .where(state: "APPROVED", user: backend_members)
+              .pluck(:user)
+              .uniq
+          }
+        end
+      }
+    end.sort_by { |m| m[:month_date] }.reverse
+
+    # Overall stats
+    total_count = backend_approved_and_closed.count
+    merged_count = backend_approved_and_closed.where(state: "merged").count
+    closed_count = backend_approved_and_closed.where(state: "closed").count
+
+    {
+      total: total_count,
+      merged: merged_count,
+      closed: closed_count,
+      monthly_breakdown: monthly_stats
+    }
   end
 
   def support_rotation_params

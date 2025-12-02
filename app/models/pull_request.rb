@@ -31,6 +31,23 @@ class PullRequest < ApplicationRecord
   scope :approved, -> { where.not(approved_at: nil) }
   scope :not_approved, -> { where(approved_at: nil) }
 
+  # Lighthouse teams (lighthouse-dash, lighthouse-pivot, lighthouse-banana-peels)
+  # were removed from the exemption list on Dec 1, 2025 per PR #25353
+  # However, existing PRs still have the exempt-be-review label
+  # This method provides the correct exemption status, ignoring the label for Lighthouse PRs
+  LIGHTHOUSE_LABELS = ['claimsApi'].freeze
+
+  def truly_exempt_from_backend_review?
+    # If no exempt label, definitely not exempt
+    return false unless labels && labels.include?('exempt-be-review')
+
+    # If PR has Lighthouse team indicators, it's NOT exempt (policy changed Dec 1, 2025)
+    return false if labels.any? { |label| LIGHTHOUSE_LABELS.include?(label) }
+
+    # Otherwise, respect the exempt label
+    true
+  end
+
   def failing_checks
     check_runs.where(status: [ "failure", "error", "cancelled" ])
   end

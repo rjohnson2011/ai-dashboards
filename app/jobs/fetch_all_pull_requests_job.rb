@@ -110,7 +110,7 @@ class FetchAllPullRequestsJob < ApplicationJob
       pr.backend_approval_status != "approved" &&
       !(pr.approval_summary && pr.approval_summary[:approved_users]&.any? { |user| backend_reviewers.include?(user) }) &&
       !pr.draft &&
-      !(pr.labels && pr.labels.include?("exempt-be-review")) &&
+      !pr.truly_exempt_from_backend_review? &&
       !(pr.approval_summary && pr.approval_summary[:approved_count].to_i > 0)
     end
 

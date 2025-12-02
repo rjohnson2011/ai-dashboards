@@ -1,10 +1,12 @@
-require 'net/http'
-require 'uri'
-require 'nokogiri'
+# frozen_string_literal: true
+
+require "net/http"
+require "uri"
+require "nokogiri"
 
 class PrHtmlScraperService
   def initialize
-    @github_token = ENV['GITHUB_TOKEN']
+    @github_token = ENV["GITHUB_TOKEN"]
   end
 
   # Scrape the actual PR web page to check for approvals
@@ -19,15 +21,15 @@ class PrHtmlScraperService
     http.read_timeout = 30
 
     request = Net::HTTP::Get.new(uri.request_uri)
-    request['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-    request['Accept'] = 'text/html,application/xhtml+xml,application/xml'
+    request["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    request["Accept"] = "text/html,application/xhtml+xml,application/xml"
 
     # Add GitHub token for authenticated requests (higher rate limit)
-    request['Authorization'] = "token #{@github_token}" if @github_token
+    request["Authorization"] = "token #{@github_token}" if @github_token
 
     response = http.request(request)
 
-    unless response.code == '200'
+    unless response.code == "200"
       Rails.logger.error "[PrHtmlScraper] Failed to fetch PR page: #{response.code}"
       return { success: false, error: "HTTP #{response.code}" }
     end
@@ -127,9 +129,9 @@ class PrHtmlScraperService
 
     # Method 1: Find review status badges/pills
     # GitHub uses elements like: <div class="merge-status-item" data-details-container>
-    doc.css('.merge-status-item, .review-status-item, .js-timeline-item').each do |item|
+    doc.css(".merge-status-item, .review-status-item, .js-timeline-item").each do |item|
       # Look for "approved" text
-      if item.text.include?('approved') || item.text.include?('Approved')
+      if item.text.include?("approved") || item.text.include?("Approved")
         # Extract username from the item
         username = extract_username_from_element(item)
         approvals << username if username
@@ -138,17 +140,17 @@ class PrHtmlScraperService
 
     # Method 2: Find timeline review events
     doc.css('[data-testid="pr-timeline-review-event"]').each do |event|
-      if event.text.include?('approved')
+      if event.text.include?("approved")
         username = extract_username_from_element(event)
         approvals << username if username
       end
     end
 
     # Method 3: Look for approval checkmarks in review section
-    doc.css('.TimelineItem-badge').each do |badge|
-      if badge['title']&.include?('approved') || badge.css('.octicon-check').any?
+    doc.css(".TimelineItem-badge").each do |badge|
+      if badge["title"]&.include?("approved") || badge.css(".octicon-check").any?
         # Find associated username
-        timeline_item = badge.ancestors('.TimelineItem').first
+        timeline_item = badge.ancestors(".TimelineItem").first
         if timeline_item
           username = extract_username_from_element(timeline_item)
           approvals << username if username
@@ -157,9 +159,9 @@ class PrHtmlScraperService
     end
 
     # Method 4: Find in "Reviewers" sidebar
-    doc.css('.discussion-sidebar-item .reviewer').each do |reviewer|
-      if reviewer.text.include?('approved') || reviewer.css('.octicon-check').any?
-        username = reviewer.css('a').first&.text&.strip&.gsub('@', '')
+    doc.css(".discussion-sidebar-item .reviewer").each do |reviewer|
+      if reviewer.text.include?("approved") || reviewer.css(".octicon-check").any?
+        username = reviewer.css("a").first&.text&.strip&.gsub("@", "")
         approvals << username if username
       end
     end
@@ -172,16 +174,16 @@ class PrHtmlScraperService
     username = nil
 
     # Look for author link
-    author_link = element.css('a.author, a[data-hovercard-type="user"]').first
-    username = author_link&.text&.strip&.gsub('@', '') if author_link
+    author_link = element.css("a.author, a[data-hovercard-type=\"user\"]").first
+    username = author_link&.text&.strip&.gsub("@", "") if author_link
 
     # Look for data attributes
-    username ||= element['data-actor'] || element['data-user']
+    username ||= element["data-actor"] || element["data-user"]
 
     # Look in alt text of avatar images
     if !username
-      img = element.css('img.avatar').first
-      username = img['alt']&.gsub('@', '') if img
+      img = element.css("img.avatar").first
+      username = img["alt"]&.gsub("@", "") if img
     end
 
     username&.strip

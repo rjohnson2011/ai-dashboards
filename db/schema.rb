@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_11_21_165651) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_02_170402) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -74,6 +74,19 @@ ActiveRecord::Schema[8.0].define(version: 2025_11_21_165651) do
     t.index ["repository_name"], name: "index_daily_snapshots_on_repository_name"
     t.index ["repository_owner", "repository_name"], name: "index_daily_snapshots_on_repository_owner_and_repository_name"
     t.index ["snapshot_date", "repository_owner", "repository_name"], name: "index_daily_snapshots_on_date_and_repository", unique: true
+  end
+
+  create_table "pull_request_comments", force: :cascade do |t|
+    t.bigint "pull_request_id", null: false
+    t.bigint "github_id", null: false
+    t.string "user", null: false
+    t.text "body"
+    t.datetime "commented_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["github_id"], name: "index_pull_request_comments_on_github_id", unique: true
+    t.index ["pull_request_id", "commented_at"], name: "idx_on_pull_request_id_commented_at_9baa8e17dc"
+    t.index ["pull_request_id"], name: "index_pull_request_comments_on_pull_request_id"
   end
 
   create_table "pull_request_reviews", force: :cascade do |t|
@@ -164,5 +177,6 @@ ActiveRecord::Schema[8.0].define(version: 2025_11_21_165651) do
   end
 
   add_foreign_key "check_runs", "pull_requests"
+  add_foreign_key "pull_request_comments", "pull_requests"
   add_foreign_key "pull_request_reviews", "pull_requests"
 end

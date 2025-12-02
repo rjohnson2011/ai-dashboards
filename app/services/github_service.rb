@@ -47,6 +47,15 @@ class GithubService
     []
   end
 
+  def pull_request_comments(pr_number)
+    # Note: In GitHub API, PR comments (issue comments) are different from review comments
+    # This fetches issue comments (regular comments on the PR thread)
+    @client.issue_comments("#{@owner}/#{@repo}", pr_number)
+  rescue Octokit::Error => e
+    Rails.logger.error "GitHub API Error fetching PR comments: #{e.message}"
+    []
+  end
+
   def pull_request_with_reviews(pr_number)
     pr = @client.pull_request("#{@owner}/#{@repo}", pr_number)
     reviews = pull_request_reviews(pr_number)

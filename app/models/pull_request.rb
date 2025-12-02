@@ -179,41 +179,51 @@ class PullRequest < ApplicationRecord
   end
 
   def changes_requested_info
-    # Check if pull_request_comments table exists
-    return nil unless ActiveRecord::Base.connection.table_exists?('pull_request_comments')
-
     # Get backend team members
     backend_members = BackendReviewGroupMember.pluck(:username)
 
-    # Find the latest comment from a backend team member
-    latest_backend_comment = pull_request_comments
+    # Find the latest CHANGES_REQUESTED or COMMENTED review from a backend team member
+    # We consider COMMENTED reviews as implicit change requests since reviewers often
+    # leave feedback without formally requesting changes
+    latest_backend_review = pull_request_reviews
       .where(user: backend_members)
-      .order(commented_at: :desc)
+      .where(state: ["CHANGES_REQUESTED", "COMMENTED"])
+      .order(submitted_at: :desc)
       .first
 
-    return nil unless latest_backend_comment
+    return nil unless latest_backend_review
 
-    # Check if there's a newer comment from the PR author after the backend comment
-    author_comment_after = pull_request_comments
+    # Check if there's been an APPROVED review from the same backend member after their comment/change request
+    later_approval = pull_request_reviews
+      .where(user: latest_backend_review.user)
+      .where(state: "APPROVED")
+      .where("submitted_at > ?", latest_backend_review.submitted_at)
+      .exists?
+
+    # If the reviewer approved after their comments, don't show as changes requested
+    return nil if later_approval
+
+    # Check if there's a newer review from the PR author after the backend review
+    author_review_after = pull_request_reviews
       .where(user: author)
-      .where("commented_at > ?", latest_backend_comment.commented_at)
-      .order(commented_at: :desc)
+      .where("submitted_at > ?", latest_backend_review.submitted_at)
+      .order(submitted_at: :desc)
       .first
 
-    if author_comment_after
+    if author_review_after
       {
         status: "new_comment_from_author",
-        message: "New comment from author",
-        backend_commenter: latest_backend_comment.user,
-        backend_comment_at: latest_backend_comment.commented_at,
-        author_comment_at: author_comment_after.commented_at
+        message: "Author responded",
+        backend_commenter: latest_backend_review.user,
+        backend_comment_at: latest_backend_review.submitted_at,
+        author_comment_at: author_review_after.submitted_at
       }
     else
       {
         status: "changes_requested",
-        message: "#{latest_backend_comment.user} at #{latest_backend_comment.commented_at.in_time_zone('Eastern Time (US & Canada)').strftime('%-l:%M%p %b %-d')}",
-        backend_commenter: latest_backend_comment.user,
-        backend_comment_at: latest_backend_comment.commented_at
+        message: "#{latest_backend_review.user} at #{latest_backend_review.submitted_at.in_time_zone('Eastern Time (US & Canada)').strftime('%-l:%M%p %b %-d')}",
+        backend_commenter: latest_backend_review.user,
+        backend_comment_at: latest_backend_review.submitted_at
       }
     end
   rescue => e

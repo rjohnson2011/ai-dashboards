@@ -1,6 +1,7 @@
 class PullRequest < ApplicationRecord
   has_many :check_runs, dependent: :destroy
   has_many :pull_request_reviews, dependent: :destroy
+  has_many :pull_request_comments, dependent: :destroy
 
   validates :github_id, presence: true
   validates :number, presence: true
@@ -175,6 +176,49 @@ class PullRequest < ApplicationRecord
       save!
       Rails.logger.info "[PullRequest] PR ##{number} is no longer fully approved"
     end
+  end
+
+  def changes_requested_info
+    # Check if pull_request_comments table exists
+    return nil unless ActiveRecord::Base.connection.table_exists?('pull_request_comments')
+
+    # Get backend team members
+    backend_members = BackendReviewGroupMember.pluck(:username)
+
+    # Find the latest comment from a backend team member
+    latest_backend_comment = pull_request_comments
+      .where(user: backend_members)
+      .order(commented_at: :desc)
+      .first
+
+    return nil unless latest_backend_comment
+
+    # Check if there's a newer comment from the PR author after the backend comment
+    author_comment_after = pull_request_comments
+      .where(user: author)
+      .where("commented_at > ?", latest_backend_comment.commented_at)
+      .order(commented_at: :desc)
+      .first
+
+    if author_comment_after
+      {
+        status: "new_comment_from_author",
+        message: "New comment from author",
+        backend_commenter: latest_backend_comment.user,
+        backend_comment_at: latest_backend_comment.commented_at,
+        author_comment_at: author_comment_after.commented_at
+      }
+    else
+      {
+        status: "changes_requested",
+        message: "#{latest_backend_comment.user} at #{latest_backend_comment.commented_at.in_time_zone('Eastern Time (US & Canada)').strftime('%-l:%M%p %b %-d')}",
+        backend_commenter: latest_backend_comment.user,
+        backend_comment_at: latest_backend_comment.commented_at
+      }
+    end
+  rescue => e
+    Rails.logger.error "Error in changes_requested_info: #{e.message}"
+    nil
   end
 
   def approval_summary

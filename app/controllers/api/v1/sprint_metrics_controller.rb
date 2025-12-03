@@ -211,11 +211,20 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Build array of daily totals
     (start_date..end_date).map do |date|
       reviews_on_date = daily_data[date] || []
-      engineer_breakdown = reviews_on_date.group_by(&:user).transform_values(&:count)
+
+      # Count unique PRs per engineer (same PR approved by multiple engineers = 1 per engineer)
+      engineer_breakdown = {}
+      reviews_on_date.group_by(&:user).each do |engineer, engineer_reviews|
+        unique_pr_ids = engineer_reviews.map { |r| r.pull_request_id }.uniq
+        engineer_breakdown[engineer] = unique_pr_ids.count
+      end
+
+      # Total = unique PRs that received backend approval on this date
+      unique_pr_ids_for_day = reviews_on_date.map { |r| r.pull_request_id }.uniq
 
       {
         date: date,
-        total: reviews_on_date.count,
+        total: unique_pr_ids_for_day.count,
         by_engineer: engineer_breakdown
       }
     end
@@ -228,6 +237,7 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Use EST timezone
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
+    # Count unique PRs that received backend approvals (not total approval actions)
     total_approvals = PullRequestReview
       .joins(:pull_request)
       .where(state: "APPROVED")
@@ -235,6 +245,7 @@ class Api::V1::SprintMetricsController < ApplicationController
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
              est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
+      .select('DISTINCT pull_requests.id')
       .count
 
     days_in_sprint = (end_date - start_date).to_i + 1
@@ -254,16 +265,23 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Use EST timezone
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
-    reviews = PullRequestReview
-      .joins(:pull_request)
-      .where(state: "APPROVED")
-      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             est_zone.parse(start_date.to_s).beginning_of_day.utc,
-             est_zone.parse(end_date.to_s).end_of_day.utc)
-      .where(user: backend_members)
+    # Count unique PRs approved by each engineer (not total approval actions)
+    # This prevents double-counting when multiple engineers approve the same PR
+    engineer_counts = {}
 
-    # Group by engineer
-    engineer_counts = reviews.group(:user).count
+    backend_members.each do |engineer|
+      unique_prs_count = PullRequestReview
+        .joins(:pull_request)
+        .where(state: "APPROVED")
+        .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
+               est_zone.parse(start_date.to_s).beginning_of_day.utc,
+               est_zone.parse(end_date.to_s).end_of_day.utc)
+        .where(user: engineer)
+        .select('DISTINCT pull_requests.id')
+        .count
+
+      engineer_counts[engineer] = unique_prs_count if unique_prs_count > 0
+    end
 
     # Convert to array of hashes and sort
     engineer_counts.map do |engineer, count|

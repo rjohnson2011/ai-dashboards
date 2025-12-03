@@ -1,3 +1,5 @@
+require 'ostruct'
+
 class GithubService
   def initialize(owner: nil, repo: nil)
     @client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"])
@@ -41,10 +43,65 @@ class GithubService
   end
 
   def pull_request_reviews(pr_number)
-    @client.pull_request_reviews("#{@owner}/#{@repo}", pr_number)
-  rescue Octokit::Error => e
-    Rails.logger.error "GitHub API Error: #{e.message}"
-    []
+    # Use GraphQL API for more accurate review data
+    # The REST API doesn't always return the latest reviews
+    graphql_reviews(pr_number)
+  rescue => e
+    Rails.logger.error "GitHub API Error fetching reviews: #{e.message}"
+    # Fallback to REST API if GraphQL fails
+    begin
+      @client.pull_request_reviews("#{@owner}/#{@repo}", pr_number)
+    rescue Octokit::Error => rest_error
+      Rails.logger.error "GitHub REST API Error (fallback): #{rest_error.message}"
+      []
+    end
+  end
+
+  def graphql_reviews(pr_number)
+    # Use GraphQL's latestReviews which provides the most recent review from each user
+    # This is more accurate than the REST API's reviews endpoint
+    query = <<~GRAPHQL
+      query {
+        repository(owner: "#{@owner}", name: "#{@repo}") {
+          pullRequest(number: #{pr_number}) {
+            reviewDecision
+            latestReviews(last: 100) {
+              nodes {
+                author {
+                  login
+                }
+                state
+                submittedAt
+                id
+              }
+            }
+          }
+        }
+      }
+    GRAPHQL
+
+    result = @client.post('/graphql', { query: query }.to_json)
+
+    if result && result[:data] && result[:data][:repository] && result[:data][:repository][:pullRequest]
+      pr_data = result[:data][:repository][:pullRequest]
+      reviews = pr_data[:latestReviews][:nodes]
+
+      # Convert GraphQL format to match REST API format for compatibility
+      reviews.map do |review|
+        OpenStruct.new(
+          id: review[:id].hash, # Convert GraphQL ID to numeric-like ID
+          user: OpenStruct.new(login: review[:author][:login]),
+          state: review[:state],
+          submitted_at: Time.parse(review[:submittedAt])
+        )
+      end
+    else
+      Rails.logger.error "GraphQL query returned unexpected structure: #{result.inspect}"
+      []
+    end
+  rescue => e
+    Rails.logger.error "GraphQL Error fetching reviews: #{e.message}"
+    raise e
   end
 
   def pull_request_comments(pr_number)

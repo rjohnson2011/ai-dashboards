@@ -199,6 +199,36 @@ class PullRequest < ApplicationRecord
     # Get backend team members
     backend_members = BackendReviewGroupMember.pluck(:username)
 
+    # Check for ANY DISMISSED reviews (indicates new commits invalidated previous approvals)
+    has_dismissed_reviews = pull_request_reviews.where(state: "DISMISSED").exists?
+
+    # If there are dismissed reviews AND current non-backend approvals AND backend has commented/reviewed,
+    # this means the author pushed new commits after backend review that need re-review
+    if has_dismissed_reviews
+      # Check if there are current approvals from non-backend team members
+      current_approvals = approval_summary
+      has_non_backend_approvals = current_approvals &&
+                                   current_approvals[:approved_count] > 0 &&
+                                   current_approvals[:approved_users].none? { |u| backend_members.include?(u) }
+
+      # Check if backend has reviewed (commented or changes requested) but not approved yet
+      backend_has_reviewed = pull_request_reviews
+        .where(user: backend_members)
+        .where(state: ["COMMENTED", "CHANGES_REQUESTED"])
+        .exists?
+
+      backend_not_approved = backend_approval_status != "approved"
+
+      if has_non_backend_approvals && backend_has_reviewed && backend_not_approved
+        last_dismissed = pull_request_reviews.where(state: "DISMISSED").order(submitted_at: :desc).first
+        return {
+          status: "new_commit_from_author",
+          message: "New Commit From Author",
+          dismissed_at: last_dismissed.submitted_at
+        }
+      end
+    end
+
     # Find the latest CHANGES_REQUESTED or COMMENTED review from a backend team member
     # We consider COMMENTED reviews as implicit change requests since reviewers often
     # leave feedback without formally requesting changes

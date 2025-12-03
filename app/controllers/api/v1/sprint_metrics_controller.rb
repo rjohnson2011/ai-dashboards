@@ -299,14 +299,24 @@ class Api::V1::SprintMetricsController < ApplicationController
     (start_date..end_date).map do |date|
       reviews_on_date = grouped_by_date[date] || []
 
-      prs_on_date = reviews_on_date.map do |review|
+      # Group reviews by PR to avoid duplicates
+      # If a PR has multiple approvals on the same day, use the first one
+      prs_by_number = reviews_on_date.group_by { |r| r.pull_request.number }
+
+      prs_on_date = prs_by_number.map do |pr_number, pr_reviews|
+        # Use the first approval for this PR on this day
+        review = pr_reviews.first
         pr = review.pull_request
+
+        # Get all approvers for this PR on this day
+        approvers = pr_reviews.map(&:user).uniq
+
         {
           number: pr.number,
           title: pr.title,
           url: pr.url,
           author: pr.author,
-          approved_by: review.user,
+          approved_by: approvers.join(", "),
           approved_at: review.submitted_at,
           state: pr.state
         }

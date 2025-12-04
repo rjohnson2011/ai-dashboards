@@ -35,11 +35,11 @@ class PullRequest < ApplicationRecord
   # were removed from the exemption list on Dec 1, 2025 per PR #25353
   # However, existing PRs still have the exempt-be-review label
   # This method provides the correct exemption status, ignoring the label for Lighthouse PRs
-  LIGHTHOUSE_LABELS = ['claimsApi'].freeze
+  LIGHTHOUSE_LABELS = [ "claimsApi" ].freeze
 
   def truly_exempt_from_backend_review?
     # If no exempt label, definitely not exempt
-    return false unless labels && labels.include?('exempt-be-review')
+    return false unless labels && labels.include?("exempt-be-review")
 
     # If PR has Lighthouse team indicators, it's NOT exempt (policy changed Dec 1, 2025)
     return false if labels.any? { |label| LIGHTHOUSE_LABELS.include?(label) }
@@ -214,7 +214,7 @@ class PullRequest < ApplicationRecord
       # Check if backend has reviewed (commented or changes requested) but not approved yet
       backend_has_reviewed = pull_request_reviews
         .where(user: backend_members)
-        .where(state: ["COMMENTED", "CHANGES_REQUESTED"])
+        .where(state: [ "COMMENTED", "CHANGES_REQUESTED" ])
         .exists?
 
       backend_not_approved = backend_approval_status != "approved"
@@ -234,7 +234,7 @@ class PullRequest < ApplicationRecord
     # leave feedback without formally requesting changes
     latest_backend_review = pull_request_reviews
       .where(user: backend_members)
-      .where(state: ["CHANGES_REQUESTED", "COMMENTED"])
+      .where(state: [ "CHANGES_REQUESTED", "COMMENTED" ])
       .order(submitted_at: :desc)
       .first
 

@@ -297,7 +297,7 @@ class Api::V1::SprintMetricsController < ApplicationController
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
              est_zone.parse(end_date.to_s).end_of_day.utc)
       .where(user: backend_members)
-      .select('DISTINCT pull_requests.id')
+      .select("DISTINCT pull_requests.id")
       .count
 
     days_in_sprint = (end_date - start_date).to_i + 1
@@ -329,7 +329,7 @@ class Api::V1::SprintMetricsController < ApplicationController
                est_zone.parse(start_date.to_s).beginning_of_day.utc,
                est_zone.parse(end_date.to_s).end_of_day.utc)
         .where(user: engineer)
-        .select('DISTINCT pull_requests.id')
+        .select("DISTINCT pull_requests.id")
         .count
 
       engineer_counts[engineer] = unique_prs_count if unique_prs_count > 0
@@ -767,7 +767,7 @@ class Api::V1::SprintMetricsController < ApplicationController
     backend_approved_and_closed = PullRequest
       .joins(:pull_request_reviews)
       .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-      .where(state: ["closed", "merged"])
+      .where(state: [ "closed", "merged" ])
       .where("pull_requests.pr_updated_at >= ?", six_months_ago)
       .where(repository_name: repo_name, repository_owner: repo_owner)
       .distinct

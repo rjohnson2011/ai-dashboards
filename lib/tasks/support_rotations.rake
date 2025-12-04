@@ -1,41 +1,50 @@
 namespace :support_rotations do
-  desc "Seed initial support rotation data"
-  task seed: :environment do
-    puts "Creating support rotations..."
+  desc "Update future support rotations based on calendar"
+  task update: :environment do
+    repository_name = ENV["GITHUB_REPO"] || "vets-api"
+    repository_owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
 
-    # Current sprint (Sprint 104)
-    SupportRotation.find_or_create_by!(
-      sprint_number: 104,
-      start_date: Date.new(2025, 11, 6),
-      end_date: Date.new(2025, 11, 19)
-    ) do |rotation|
-      rotation.engineer_name = "rjohnson2011"
-      rotation.repository_name = "vets-api"
-      rotation.repository_owner = "department-of-veterans-affairs"
+    # Delete all future rotations (after current sprint)
+    current_date = Date.today
+    deleted_count = SupportRotation.where("start_date > ?", current_date).destroy_all.count
+
+    puts "Deleted #{deleted_count} future rotations"
+    puts "Creating new rotations..."
+
+    rotations = [
+      # December 2025 - January 2026
+      { sprint_number: 16, engineer_name: "stevenjcumming", start_date: "2025-12-04", end_date: "2025-12-17" },
+      { sprint_number: 17, engineer_name: "ericboehs", start_date: "2025-12-18", end_date: "2025-12-31" },
+      { sprint_number: 18, engineer_name: "rmtolmach", start_date: "2026-01-01", end_date: "2026-01-14" },
+      { sprint_number: 19, engineer_name: "RachalCassity", start_date: "2026-01-15", end_date: "2026-01-28" },
+
+      # February 2026
+      { sprint_number: 20, engineer_name: "rjohnson2011", start_date: "2026-01-29", end_date: "2026-02-11" },
+      { sprint_number: 21, engineer_name: "stevenjcumming", start_date: "2026-02-12", end_date: "2026-02-25" },
+      { sprint_number: 22, engineer_name: "rmtolmach", start_date: "2026-02-26", end_date: "2026-03-11" },
+
+      # March 2026
+      { sprint_number: 23, engineer_name: "stiehlrod", start_date: "2026-03-12", end_date: "2026-03-25" },
+      { sprint_number: 24, engineer_name: "RachalCassity", start_date: "2026-03-26", end_date: "2026-04-08" },
+
+      # April 2026
+      { sprint_number: 25, engineer_name: "rjohnson2011", start_date: "2026-04-09", end_date: "2026-04-22" },
+      { sprint_number: 26, engineer_name: "stevenjcumming", start_date: "2026-04-23", end_date: "2026-05-06" },
+      { sprint_number: 27, engineer_name: "rmtolmach", start_date: "2026-05-07", end_date: "2026-05-20" },
+    ]
+
+    rotations.each do |rotation_data|
+      rotation = SupportRotation.create!(
+        sprint_number: rotation_data[:sprint_number],
+        engineer_name: rotation_data[:engineer_name],
+        start_date: Date.parse(rotation_data[:start_date]),
+        end_date: Date.parse(rotation_data[:end_date]),
+        repository_name: repository_name,
+        repository_owner: repository_owner
+      )
+      puts "Created Sprint ##{rotation.sprint_number}: #{rotation.engineer_name} (#{rotation.start_date} to #{rotation.end_date})"
     end
 
-    # Previous sprint (Sprint 103)
-    SupportRotation.find_or_create_by!(
-      sprint_number: 103,
-      start_date: Date.new(2025, 10, 23),
-      end_date: Date.new(2025, 11, 5)
-    ) do |rotation|
-      rotation.engineer_name = "RachalCassity"
-      rotation.repository_name = "vets-api"
-      rotation.repository_owner = "department-of-veterans-affairs"
-    end
-
-    # Sprint 102
-    SupportRotation.find_or_create_by!(
-      sprint_number: 102,
-      start_date: Date.new(2025, 10, 9),
-      end_date: Date.new(2025, 10, 22)
-    ) do |rotation|
-      rotation.engineer_name = "stiehlrod"
-      rotation.repository_name = "vets-api"
-      rotation.repository_owner = "department-of-veterans-affairs"
-    end
-
-    puts "Created #{SupportRotation.count} support rotations"
+    puts "\nAll rotations updated successfully!"
   end
 end

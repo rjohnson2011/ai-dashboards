@@ -14,8 +14,8 @@ namespace :support_rotations do
     rotations = [
       # December 2025 - January 2026
       { sprint_number: 16, engineer_name: "stevenjcumming", start_date: "2025-12-04", end_date: "2025-12-17" },
-      { sprint_number: 17, engineer_name: "ericboehs", start_date: "2025-12-18", end_date: "2025-12-31" },
-      { sprint_number: 18, engineer_name: "rmtolmach", start_date: "2026-01-01", end_date: "2026-01-14" },
+      { sprint_number: 17, engineer_name: "rmtolmach", start_date: "2025-12-18", end_date: "2025-12-31" },
+      { sprint_number: 18, engineer_name: "stiehlrod", start_date: "2026-01-01", end_date: "2026-01-14" },
       { sprint_number: 19, engineer_name: "RachalCassity", start_date: "2026-01-15", end_date: "2026-01-28" },
 
       # February 2026

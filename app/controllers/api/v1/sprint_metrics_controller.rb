@@ -10,12 +10,39 @@ class Api::V1::SprintMetricsController < ApplicationController
         current_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
                          SupportRotation.current_sprint
       else
-        # Get sprint by offset (negative for past sprints)
-        current_sprint = SupportRotation
-          .where(repository_name: repository_name, repository_owner: repository_owner)
-          .order(start_date: :desc)
-          .offset(-sprint_offset) # Convert negative offset to positive for SQL
-          .first
+        # Get sprint by offset relative to current sprint
+        # First find the current sprint
+        base_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
+                      SupportRotation.current_sprint
+
+        if base_sprint
+          if sprint_offset < 0
+            # Negative offset = go to PAST sprints (earlier end dates)
+            # Order by end_date descending (newest first), find sprints that ended before current
+            current_sprint = SupportRotation
+              .where(repository_name: repository_name, repository_owner: repository_owner)
+              .where("end_date < ?", base_sprint.start_date)
+              .order(end_date: :desc)
+              .offset(-sprint_offset - 1) # offset -1 means first sprint before current
+              .first
+          else
+            # Positive offset = go to FUTURE sprints (later start dates)
+            # Order by start_date ascending (oldest first), find sprints that start after current
+            current_sprint = SupportRotation
+              .where(repository_name: repository_name, repository_owner: repository_owner)
+              .where("start_date > ?", base_sprint.end_date)
+              .order(start_date: :asc)
+              .offset(sprint_offset - 1) # offset 1 means first sprint after current
+              .first
+          end
+        else
+          # No current sprint found, fall back to absolute positioning
+          current_sprint = SupportRotation
+            .where(repository_name: repository_name, repository_owner: repository_owner)
+            .order(start_date: :desc)
+            .offset(-sprint_offset)
+            .first
+        end
       end
     rescue ActiveRecord::StatementInvalid => e
       # Table doesn't exist yet (migration pending)
@@ -133,16 +160,41 @@ class Api::V1::SprintMetricsController < ApplicationController
     repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]
     sprint_offset = (params[:sprint_offset] || 0).to_i
 
-    # Get current sprint
+    # Get current sprint (using same logic as index method)
     current_sprint = if sprint_offset == 0
       SupportRotation.current_for_repository(repository_name, repository_owner) ||
         SupportRotation.current_sprint
     else
-      SupportRotation
-        .where(repository_name: repository_name, repository_owner: repository_owner)
-        .order(start_date: :desc)
-        .offset(-sprint_offset)
-        .first
+      # Get sprint by offset relative to current sprint
+      base_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
+                    SupportRotation.current_sprint
+
+      if base_sprint
+        if sprint_offset < 0
+          # Negative offset = go to PAST sprints (earlier end dates)
+          SupportRotation
+            .where(repository_name: repository_name, repository_owner: repository_owner)
+            .where("end_date < ?", base_sprint.start_date)
+            .order(end_date: :desc)
+            .offset(-sprint_offset - 1)
+            .first
+        else
+          # Positive offset = go to FUTURE sprints (later start dates)
+          SupportRotation
+            .where(repository_name: repository_name, repository_owner: repository_owner)
+            .where("start_date > ?", base_sprint.end_date)
+            .order(start_date: :asc)
+            .offset(sprint_offset - 1)
+            .first
+        end
+      else
+        # No current sprint found, fall back to absolute positioning
+        SupportRotation
+          .where(repository_name: repository_name, repository_owner: repository_owner)
+          .order(start_date: :desc)
+          .offset(-sprint_offset)
+          .first
+      end
     end
 
     unless current_sprint

@@ -301,11 +301,20 @@ class Api::V1::SprintMetricsController < ApplicationController
       .count
 
     days_in_sprint = (end_date - start_date).to_i + 1
-    avg_per_day = days_in_sprint > 0 ? (total_approvals.to_f / days_in_sprint).round(1) : 0
+
+    # Calculate days elapsed (from start to today, capped at total sprint days)
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+    today = est_zone.now.to_date
+    days_elapsed = [ (today - start_date).to_i + 1, days_in_sprint ].min
+    days_elapsed = [ days_elapsed, 1 ].max # At least 1 day
+
+    # Use days elapsed for average calculation
+    avg_per_day = days_elapsed > 0 ? (total_approvals.to_f / days_elapsed).round(1) : 0
 
     {
       total: total_approvals,
       days: days_in_sprint,
+      days_elapsed: days_elapsed,
       average_per_day: avg_per_day
     }
   end

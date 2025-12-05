@@ -21,8 +21,9 @@ class FetchAllPullRequestsJob < ApplicationJob
     master_prs = open_prs.select { |pr| pr.base.ref == "master" }
     Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
 
-    # Update or create PR records
-    master_prs.each do |pr_data|
+    # Process PRs in batches to avoid memory spikes
+    master_prs.each_slice(10) do |batch|
+      batch.each do |pr_data|
       # Find by github_id to avoid duplicate key violations
       pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
@@ -48,23 +49,29 @@ class FetchAllPullRequestsJob < ApplicationJob
         head_sha: pr_data.head.sha
       )
 
-      # Fetch and store PR comments
-      begin
-        comments = github_service.pull_request_comments(pr_data.number)
-        comments.each do |comment_data|
-          PullRequestComment.find_or_create_by(github_id: comment_data.id) do |comment|
-            comment.pull_request = pr
-            comment.user = comment_data.user.login
-            comment.body = comment_data.body
-            comment.commented_at = comment_data.created_at
+        # Only fetch comments during deep verification to save memory
+        if deep_verification
+          begin
+            comments = github_service.pull_request_comments(pr_data.number)
+            comments.each do |comment_data|
+              PullRequestComment.find_or_create_by(github_id: comment_data.id) do |comment|
+                comment.pull_request = pr
+                comment.user = comment_data.user.login
+                comment.body = comment_data.body
+                comment.commented_at = comment_data.created_at
+              end
+            end
+          rescue => e
+            Rails.logger.error "[FetchAllPullRequestsJob] Error fetching comments for PR ##{pr_data.number}: #{e.message}"
           end
         end
-      rescue => e
-        Rails.logger.error "[FetchAllPullRequestsJob] Error fetching comments for PR ##{pr_data.number}: #{e.message}"
+
+        # Queue job to fetch checks
+        FetchPullRequestChecksJob.perform_later(pr.id, repository_name: repository_name, repository_owner: repository_owner)
       end
 
-      # Queue job to fetch checks
-      FetchPullRequestChecksJob.perform_later(pr.id, repository_name: repository_name, repository_owner: repository_owner)
+      # Force garbage collection after each batch to free memory
+      GC.start(full_mark: false, immediate_sweep: true)
     end
 
     # Only do expensive operations if deep_verification is true
@@ -110,24 +117,28 @@ class FetchAllPullRequestsJob < ApplicationJob
 
     backend_reviewers = BackendReviewGroupMember.pluck(:username)
 
-    # Find PRs in "PRs Needing Team Review" section for this repository
-    needs_review_prs = PullRequest.where(
+    # Use database queries instead of loading all PRs into memory
+    # Only fetch IDs first, then process in batches
+    needs_review_pr_ids = PullRequest.where(
       state: "open",
       repository_name: repository_name || ENV["GITHUB_REPO"],
       repository_owner: repository_owner || ENV["GITHUB_OWNER"]
-    ).select do |pr|
-      pr.backend_approval_status != "approved" &&
-      !(pr.approval_summary && pr.approval_summary[:approved_users]&.any? { |user| backend_reviewers.include?(user) }) &&
-      !pr.draft &&
-      !pr.truly_exempt_from_backend_review? &&
-      !(pr.approval_summary && pr.approval_summary[:approved_count].to_i > 0)
-    end
+    )
+    .where.not(backend_approval_status: "approved")
+    .where(draft: false)
+    .pluck(:id)
 
-    Rails.logger.info "[FetchAllPullRequestsJob] Found #{needs_review_prs.count} PRs to verify"
+    Rails.logger.info "[FetchAllPullRequestsJob] Found #{needs_review_pr_ids.count} potential PRs to verify"
 
     updated_count = 0
 
-    needs_review_prs.each do |pr|
+    # Process in batches of 5 to minimize memory usage
+    needs_review_pr_ids.each_slice(5) do |batch_ids|
+      PullRequest.where(id: batch_ids).each do |pr|
+        # Skip if truly exempt or already has approvals
+        next if pr.truly_exempt_from_backend_review?
+        next if pr.approval_summary && pr.approval_summary[:approved_count].to_i > 0
+        next if pr.approval_summary && pr.approval_summary[:approved_users]&.any? { |user| backend_reviewers.include?(user) }
       begin
         # Delete existing reviews to force fresh fetch
         pr.pull_request_reviews.destroy_all
@@ -166,6 +177,10 @@ class FetchAllPullRequestsJob < ApplicationJob
       rescue => e
         Rails.logger.error "[FetchAllPullRequestsJob] Error verifying PR ##{pr.number}: #{e.message}"
       end
+      end
+
+      # Force garbage collection after each batch
+      GC.start(full_mark: false, immediate_sweep: true)
     end
 
     Rails.logger.info "[FetchAllPullRequestsJob] Verification complete. Updated #{updated_count} PRs"

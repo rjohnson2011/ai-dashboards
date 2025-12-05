@@ -1,4 +1,4 @@
-require 'ostruct'
+require "ostruct"
 
 class GithubService
   def initialize(owner: nil, repo: nil)
@@ -80,7 +80,7 @@ class GithubService
       }
     GRAPHQL
 
-    result = @client.post('/graphql', { query: query }.to_json)
+    result = @client.post("/graphql", { query: query }.to_json)
 
     if result && result[:data] && result[:data][:repository] && result[:data][:repository][:pullRequest]
       pr_data = result[:data][:repository][:pullRequest]

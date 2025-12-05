@@ -1,8 +1,8 @@
 class FetchAllPullRequestsJob < ApplicationJob
   queue_as :default
 
-  def perform(repository_name: nil, repository_owner: nil)
-    Rails.logger.info "[FetchAllPullRequestsJob] Starting full PR update for #{repository_owner}/#{repository_name || 'default'}"
+  def perform(repository_name: nil, repository_owner: nil, deep_verification: false)
+    Rails.logger.info "[FetchAllPullRequestsJob] Starting full PR update for #{repository_owner}/#{repository_name || 'default'} (deep_verification: #{deep_verification})"
 
     github_service = GithubService.new(owner: repository_owner, repo: repository_name)
 
@@ -67,24 +67,33 @@ class FetchAllPullRequestsJob < ApplicationJob
       FetchPullRequestChecksJob.perform_later(pr.id, repository_name: repository_name, repository_owner: repository_owner)
     end
 
-    # Clean up closed/merged PRs for this repository
-    scope = PullRequest.where(state: "open")
-    scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
-    scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
-    scope.where.not(number: master_prs.map(&:number)).each do |pr|
-      begin
-        actual_pr = github_service.pull_request(pr.number)
-        pr.update!(state: actual_pr.merged ? "merged" : "closed")
-      rescue Octokit::NotFound
-        pr.destroy
+    # Only do expensive operations if deep_verification is true
+    # This includes checking closed/merged PRs, re-verifying reviews, and HTML scraping
+    # These operations should only run once or twice per day to minimize memory usage
+    if deep_verification
+      Rails.logger.info "[FetchAllPullRequestsJob] Running deep verification (closed PRs, reviews, HTML scraping)"
+
+      # Clean up closed/merged PRs for this repository
+      scope = PullRequest.where(state: "open")
+      scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
+      scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
+      scope.where.not(number: master_prs.map(&:number)).each do |pr|
+        begin
+          actual_pr = github_service.pull_request(pr.number)
+          pr.update!(state: actual_pr.merged ? "merged" : "closed")
+        rescue Octokit::NotFound
+          pr.destroy
+        end
       end
+
+      # Verify PRs in "PRs Needing Team Review" for API lag issues
+      verify_prs_needing_review(github_service, repository_name, repository_owner)
+
+      # Web scraping verification as final check
+      verify_prs_via_html_scraping(repository_name, repository_owner)
+    else
+      Rails.logger.info "[FetchAllPullRequestsJob] Skipping deep verification to minimize memory usage"
     end
-
-    # Verify PRs in "PRs Needing Team Review" for API lag issues
-    verify_prs_needing_review(github_service, repository_name, repository_owner)
-
-    # Web scraping verification as final check
-    verify_prs_via_html_scraping(repository_name, repository_owner)
 
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 

@@ -30,7 +30,7 @@ namespace :support_rotations do
       # April 2026
       { sprint_number: 25, engineer_name: "rjohnson2011", start_date: "2026-04-09", end_date: "2026-04-22" },
       { sprint_number: 26, engineer_name: "stevenjcumming", start_date: "2026-04-23", end_date: "2026-05-06" },
-      { sprint_number: 27, engineer_name: "rmtolmach", start_date: "2026-05-07", end_date: "2026-05-20" },
+      { sprint_number: 27, engineer_name: "rmtolmach", start_date: "2026-05-07", end_date: "2026-05-20" }
     ]
 
     rotations.each do |rotation_data|

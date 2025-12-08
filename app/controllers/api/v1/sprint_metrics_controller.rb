@@ -756,87 +756,94 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def calculate_backend_approved_closed_prs(repo_name, repo_owner)
-    backend_members = BackendReviewGroupMember.pluck(:username)
-    six_months_ago = 6.months.ago
+    # Cache key includes repo and date to invalidate daily
+    cache_key = "backend_approved_closed_prs:#{repo_owner}:#{repo_name}:#{Date.today}"
 
-    # Use database-level aggregation to avoid loading all PRs into memory
-    # Get counts by month and state using SQL GROUP BY
-    monthly_counts = PullRequest
-      .joins(:pull_request_reviews)
-      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-      .where(state: [ "closed", "merged" ])
-      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
-      .where(repository_name: repo_name, repository_owner: repo_owner)
-      .group("DATE_TRUNC('month', pull_requests.pr_updated_at)", "pull_requests.state")
-      .count
+    # Cache for 24 hours - historical data doesn't change, only need to add today's PRs
+    Rails.cache.fetch(cache_key, expires_in: 24.hours) do
+      backend_members = BackendReviewGroupMember.pluck(:username)
+      six_months_ago = 6.months.ago
 
-    # Overall stats using database COUNT
-    total_count = PullRequest
-      .joins(:pull_request_reviews)
-      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-      .where(state: [ "closed", "merged" ])
-      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
-      .where(repository_name: repo_name, repository_owner: repo_owner)
-      .distinct
-      .count
-
-    merged_count = PullRequest
-      .joins(:pull_request_reviews)
-      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-      .where(state: "merged")
-      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
-      .where(repository_name: repo_name, repository_owner: repo_owner)
-      .distinct
-      .count
-
-    closed_count = total_count - merged_count
-
-    # Build monthly breakdown from aggregated counts
-    monthly_breakdown = monthly_counts.group_by { |(month_timestamp, _state), _count| month_timestamp }.map do |month_timestamp, group|
-      month_date = month_timestamp.to_date
-      merged = group.find { |(_, state), _| state == "merged" }&.last || 0
-      closed = group.find { |(_, state), _| state == "closed" }&.last || 0
-
-      # Only fetch sample PRs (limit 10) to minimize memory usage
-      sample_prs = PullRequest
+      # Use database-level aggregation to avoid loading all PRs into memory
+      # Get counts by month and state using SQL GROUP BY
+      monthly_counts = PullRequest
         .joins(:pull_request_reviews)
         .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
         .where(state: [ "closed", "merged" ])
-        .where("pull_requests.pr_updated_at >= ? AND pull_requests.pr_updated_at < ?",
-               month_timestamp,
-               month_timestamp + 1.month)
+        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+        .where(repository_name: repo_name, repository_owner: repo_owner)
+        .group("DATE_TRUNC('month', pull_requests.pr_updated_at)", "pull_requests.state")
+        .count
+
+      # Overall stats using database COUNT
+      total_count = PullRequest
+        .joins(:pull_request_reviews)
+        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+        .where(state: [ "closed", "merged" ])
+        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
         .where(repository_name: repo_name, repository_owner: repo_owner)
         .distinct
-        .limit(10)
-        .pluck(:number, :title, :url, :state, :author, :pr_updated_at)
-        .map do |(number, title, url, state, author, updated_at)|
-          {
-            number: number,
-            title: title,
-            url: url,
-            state: state,
-            author: author,
-            closed_at: updated_at,
-            approved_by: [] # Omit approvers to save queries
-          }
-        end
+        .count
+
+      merged_count = PullRequest
+        .joins(:pull_request_reviews)
+        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+        .where(state: "merged")
+        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+        .where(repository_name: repo_name, repository_owner: repo_owner)
+        .distinct
+        .count
+
+      closed_count = total_count - merged_count
+
+      # Build monthly breakdown from aggregated counts
+      monthly_breakdown = monthly_counts.group_by { |(month_timestamp, _state), _count| month_timestamp }.map do |month_timestamp, group|
+        month_date = month_timestamp.to_date
+        merged = group.find { |(_, state), _| state == "merged" }&.last || 0
+        closed = group.find { |(_, state), _| state == "closed" }&.last || 0
+
+        # Only fetch sample PRs (limit 5) to minimize memory usage
+        # Historical data doesn't change, so we don't need to query this repeatedly
+        sample_prs = PullRequest
+          .joins(:pull_request_reviews)
+          .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+          .where(state: [ "closed", "merged" ])
+          .where("pull_requests.pr_updated_at >= ? AND pull_requests.pr_updated_at < ?",
+                 month_timestamp,
+                 month_timestamp + 1.month)
+          .where(repository_name: repo_name, repository_owner: repo_owner)
+          .distinct
+          .limit(5)
+          .pluck(:number, :title, :url, :state, :author, :pr_updated_at)
+          .map do |(number, title, url, state, author, updated_at)|
+            {
+              number: number,
+              title: title,
+              url: url,
+              state: state,
+              author: author,
+              closed_at: updated_at,
+              approved_by: [] # Omit approvers to save queries
+            }
+          end
+
+        {
+          month: month_date.strftime("%B %Y"),
+          month_date: month_date,
+          total: merged + closed,
+          merged: merged,
+          closed: closed,
+          prs: sample_prs
+        }
+      end.sort_by { |m| m[:month_date] }.reverse
 
       {
-        month: month_date.strftime("%B %Y"),
-        month_date: month_date,
-        total: merged + closed,
-        merged: merged,
-        closed: closed,
-        prs: sample_prs
+        total: total_count,
+        merged: merged_count,
+        closed: closed_count,
+        monthly_breakdown: monthly_breakdown
       }
-    end.sort_by { |m| m[:month_date] }.reverse
-
-    {
-      total: total_count,
-      merged: merged_count,
-      closed: closed_count,
-      monthly_breakdown: monthly_breakdown
-    }
+    end
   end
 
   def support_rotation_params

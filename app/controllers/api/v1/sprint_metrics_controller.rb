@@ -249,30 +249,27 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Use EST timezone for date calculations
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
-    reviews = PullRequestReview
-      .joins(:pull_request)
-      .where(state: "APPROVED")
-      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             est_zone.parse(start_date.to_s).beginning_of_day.utc,
-             est_zone.parse(end_date.to_s).end_of_day.utc)
-      .where(user: backend_members)
-
-    # Group by date in EST timezone
-    daily_data = reviews.group_by { |r| r.submitted_at.in_time_zone(est_zone).to_date }
-
-    # Build array of daily totals
+    # Build array of daily totals by querying each day separately
     (start_date..end_date).map do |date|
-      reviews_on_date = daily_data[date] || []
+      # Query only approvals for this specific date
+      reviews_on_date = PullRequestReview
+        .joins(:pull_request)
+        .where(state: "APPROVED")
+        .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at < ?",
+               est_zone.parse(date.to_s).beginning_of_day.utc,
+               est_zone.parse(date.to_s).end_of_day.utc)
+        .where(user: backend_members)
+        .select(:user, :pull_request_id)
 
       # Count unique PRs per engineer (same PR approved by multiple engineers = 1 per engineer)
       engineer_breakdown = {}
       reviews_on_date.group_by(&:user).each do |engineer, engineer_reviews|
-        unique_pr_ids = engineer_reviews.map { |r| r.pull_request_id }.uniq
+        unique_pr_ids = engineer_reviews.map(&:pull_request_id).uniq
         engineer_breakdown[engineer] = unique_pr_ids.count
       end
 
       # Total = unique PRs that received backend approval on this date
-      unique_pr_ids_for_day = reviews_on_date.map { |r| r.pull_request_id }.uniq
+      unique_pr_ids_for_day = reviews_on_date.map(&:pull_request_id).uniq
 
       {
         date: date,
@@ -360,44 +357,37 @@ class Api::V1::SprintMetricsController < ApplicationController
     # Use EST timezone
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
-    # Get all approved reviews in the date range across all repositories
-    reviews = PullRequestReview
-      .joins(:pull_request)
-      .where(state: "APPROVED")
-      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             est_zone.parse(start_date.to_s).beginning_of_day.utc,
-             est_zone.parse(end_date.to_s).end_of_day.utc)
-      .where(user: backend_members)
-      .includes(:pull_request)
-      .order(:submitted_at)
-
-    # Group by date in EST timezone
-    grouped_by_date = reviews.group_by { |r| r.submitted_at.in_time_zone(est_zone).to_date }
-
-    # Build the response
+    # Build the response by querying each day separately to avoid loading all into memory
     (start_date..end_date).map do |date|
-      reviews_on_date = grouped_by_date[date] || []
+      # Query only reviews for this specific date
+      reviews_on_date = PullRequestReview
+        .joins(:pull_request)
+        .where(state: "APPROVED")
+        .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at < ?",
+               est_zone.parse(date.to_s).beginning_of_day.utc,
+               est_zone.parse(date.to_s).end_of_day.utc)
+        .where(user: backend_members)
+        .select("pull_request_reviews.*, pull_requests.number, pull_requests.title, pull_requests.url, pull_requests.author, pull_requests.state")
+        .order("pull_request_reviews.submitted_at")
 
-      # Group reviews by PR to avoid duplicates
-      # If a PR has multiple approvals on the same day, use the first one
-      prs_by_number = reviews_on_date.group_by { |r| r.pull_request.number }
+      # Group reviews by PR using database query
+      pr_reviews = reviews_on_date.group_by(&:pull_request_id)
 
-      prs_on_date = prs_by_number.map do |pr_number, pr_reviews|
+      prs_on_date = pr_reviews.map do |pr_id, reviews|
         # Use the first approval for this PR on this day
-        review = pr_reviews.first
-        pr = review.pull_request
+        review = reviews.first
 
         # Get all approvers for this PR on this day
-        approvers = pr_reviews.map(&:user).uniq
+        approvers = reviews.map(&:user).uniq
 
         {
-          number: pr.number,
-          title: pr.title,
-          url: pr.url,
-          author: pr.author,
+          number: review.number,
+          title: review.title,
+          url: review.url,
+          author: review.author,
           approved_by: approvers.join(", "),
           approved_at: review.submitted_at,
-          state: pr.state
+          state: review.state
         }
       end
 
@@ -769,62 +759,83 @@ class Api::V1::SprintMetricsController < ApplicationController
     backend_members = BackendReviewGroupMember.pluck(:username)
     six_months_ago = 6.months.ago
 
-    # Find PRs that:
-    # 1. Were approved by backend review group members
-    # 2. Are now closed or merged
-    # 3. Were updated in the past 6 months
-    backend_approved_and_closed = PullRequest
+    # Use database-level aggregation to avoid loading all PRs into memory
+    # Get counts by month and state using SQL GROUP BY
+    monthly_counts = PullRequest
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+      .where(state: [ "closed", "merged" ])
+      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+      .where(repository_name: repo_name, repository_owner: repo_owner)
+      .group("DATE_TRUNC('month', pull_requests.pr_updated_at)", "pull_requests.state")
+      .count
+
+    # Overall stats using database COUNT
+    total_count = PullRequest
       .joins(:pull_request_reviews)
       .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
       .where(state: [ "closed", "merged" ])
       .where("pull_requests.pr_updated_at >= ?", six_months_ago)
       .where(repository_name: repo_name, repository_owner: repo_owner)
       .distinct
-      .order(pr_updated_at: :desc)
+      .count
 
-    # Group by month and status
-    monthly_data = backend_approved_and_closed.group_by do |pr|
-      pr.pr_updated_at.beginning_of_month
-    end
+    merged_count = PullRequest
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+      .where(state: "merged")
+      .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+      .where(repository_name: repo_name, repository_owner: repo_owner)
+      .distinct
+      .count
 
-    # Calculate stats for each month
-    monthly_stats = monthly_data.map do |month, prs|
-      merged_count = prs.count { |pr| pr.state == "merged" }
-      closed_count = prs.count { |pr| pr.state == "closed" }
+    closed_count = total_count - merged_count
 
-      {
-        month: month.strftime("%B %Y"),
-        month_date: month.to_date,
-        total: prs.count,
-        merged: merged_count,
-        closed: closed_count,
-        prs: prs.first(20).map do |pr|
+    # Build monthly breakdown from aggregated counts
+    monthly_breakdown = monthly_counts.group_by { |(month_timestamp, _state), _count| month_timestamp }.map do |month_timestamp, group|
+      month_date = month_timestamp.to_date
+      merged = group.find { |(_, state), _| state == "merged" }&.last || 0
+      closed = group.find { |(_, state), _| state == "closed" }&.last || 0
+
+      # Only fetch sample PRs (limit 10) to minimize memory usage
+      sample_prs = PullRequest
+        .joins(:pull_request_reviews)
+        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+        .where(state: [ "closed", "merged" ])
+        .where("pull_requests.pr_updated_at >= ? AND pull_requests.pr_updated_at < ?",
+               month_timestamp,
+               month_timestamp + 1.month)
+        .where(repository_name: repo_name, repository_owner: repo_owner)
+        .distinct
+        .limit(10)
+        .pluck(:number, :title, :url, :state, :author, :pr_updated_at)
+        .map do |(number, title, url, state, author, updated_at)|
           {
-            number: pr.number,
-            title: pr.title,
-            url: pr.url,
-            state: pr.state,
-            author: pr.author,
-            closed_at: pr.pr_updated_at,
-            approved_by: pr.pull_request_reviews
-              .where(state: "APPROVED", user: backend_members)
-              .pluck(:user)
-              .uniq
+            number: number,
+            title: title,
+            url: url,
+            state: state,
+            author: author,
+            closed_at: updated_at,
+            approved_by: [] # Omit approvers to save queries
           }
         end
+
+      {
+        month: month_date.strftime("%B %Y"),
+        month_date: month_date,
+        total: merged + closed,
+        merged: merged,
+        closed: closed,
+        prs: sample_prs
       }
     end.sort_by { |m| m[:month_date] }.reverse
-
-    # Overall stats
-    total_count = backend_approved_and_closed.count
-    merged_count = backend_approved_and_closed.where(state: "merged").count
-    closed_count = backend_approved_and_closed.where(state: "closed").count
 
     {
       total: total_count,
       merged: merged_count,
       closed: closed_count,
-      monthly_breakdown: monthly_stats
+      monthly_breakdown: monthly_breakdown
     }
   end
 

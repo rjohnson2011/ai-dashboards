@@ -68,23 +68,27 @@ class Api::V1::ReviewsController < ApplicationController
           }
         end
 
-        # Format PR data helper - optimized to load only failing checks
+        # Batch load ALL failing check runs for all PRs at once to avoid N+1 queries
+        all_pr_ids = (open_pull_requests.pluck(:id) + approved_pull_requests.pluck(:id)).uniq
+        failing_checks_by_pr = CheckRun
+          .where(pull_request_id: all_pr_ids)
+          .where(status: [ "failure", "error", "cancelled" ])
+          .select(:pull_request_id, :suite_name, :name, :status, :url, :description, :required)
+          .group_by(&:pull_request_id)
+
+        # Format PR data helper - uses pre-loaded failing checks
         format_pr = lambda do |pr|
-          # Load only failed check runs from database instead of loading all via includes
-          failing_checks = CheckRun
-            .where(pull_request_id: pr.id)
-            .where(status: [ "failure", "error", "cancelled" ])
-            .select(:suite_name, :name, :status, :url, :description, :required)
-            .distinct
-            .map do |check|
-              {
-                name: check.suite_name || check.name,
-                status: check.status,
-                url: check.url,
-                description: check.description,
-                required: check.required
-              }
-            end
+          # Use pre-loaded failing checks grouped by PR ID
+          pr_failing_checks = failing_checks_by_pr[pr.id] || []
+          failing_checks = pr_failing_checks.map do |check|
+            {
+              name: check.suite_name || check.name,
+              status: check.status,
+              url: check.url,
+              description: check.description,
+              required: check.required
+            }
+          end.uniq { |c| c[:name] } # Deduplicate by name
 
         # Create simple timeline from existing data to avoid API calls
         timeline_data = []

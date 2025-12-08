@@ -5,71 +5,86 @@ class Api::V1::ReviewsController < ApplicationController
       repository_name = params[:repository_name]
       repository_owner = params[:repository_owner]
 
-      # Check if repository columns exist (for backwards compatibility)
-      has_repository_columns = PullRequest.column_names.include?("repository_name")
+      # Cache key includes repo and current hour to balance freshness with performance
+      cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{Time.current.hour}"
 
-      # Build query scope
-      if repository_name && repository_owner && has_repository_columns
-        # Specific repository requested
-        base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
-      elsif has_repository_columns
-        # No specific repo requested - return all repositories
-        base_scope = PullRequest.all
-      else
-        # Fallback for databases without repository columns
-        base_scope = PullRequest
-      end
+      # Cache for 1 hour - balances memory usage with data freshness
+      cached_data = Rails.cache.fetch(cache_key, expires_in: 1.hour) do
+        # Check if repository columns exist (for backwards compatibility)
+        has_repository_columns = PullRequest.column_names.include?("repository_name")
 
-      # Fetch open PRs that do NOT have backend approval
-      open_pull_requests = base_scope.open.where(backend_approval_status: "not_approved").includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
-
-      # Fetch backend approved PRs separately
-      approved_pull_requests = base_scope.open.where(backend_approval_status: "approved").includes(:check_runs, :pull_request_reviews).order(pr_updated_at: :desc)
-
-      # Check if this is a non-vets-api repository that needs on-demand scraping
-      if has_repository_columns && repository_name != "vets-api" && base_scope.count == 0
-        # Check if we've already started scraping recently
-        cache_key = "scraping_#{repository_owner}_#{repository_name}"
-        unless Rails.cache.read(cache_key)
-          Rails.cache.write(cache_key, true, expires_in: 5.minutes)
-          # Trigger on-demand scraping for this repository
-          FetchAllPullRequestsJob.perform_later(
-            repository_name: repository_name,
-            repository_owner: repository_owner
-          )
+        # Build query scope
+        if repository_name && repository_owner && has_repository_columns
+          # Specific repository requested
+          base_scope = PullRequest.where(repository_name: repository_name, repository_owner: repository_owner)
+        elsif has_repository_columns
+          # No specific repo requested - return all repositories
+          base_scope = PullRequest.all
+        else
+          # Fallback for databases without repository columns
+          base_scope = PullRequest
         end
-      end
 
-      # If no PRs in database, return empty response with message
-      if open_pull_requests.empty? && approved_pull_requests.empty?
-        return render json: {
-          pull_requests: [],
-          approved_pull_requests: [],
-          count: 0,
-          approved_count: 0,
-          repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
-          message: repository_name == "vets-api" ?
-            "Data is being refreshed. Please check back in a few minutes." :
-            "Loading data for #{repository_name}. This may take a few minutes for the first load.",
-          last_updated: nil,
-          updating: true
-        }
-      end
+        # Fetch open PRs WITHOUT eager loading to reduce memory usage
+        # We'll load associations selectively only for data we actually use
+        open_pull_requests = base_scope.open
+          .where(backend_approval_status: "not_approved")
+          .order(pr_updated_at: :desc)
+          .limit(150) # Cap at 150 PRs to prevent memory issues
 
-      # Initialize timeline service (disabled for now to avoid too many API calls)
-      # timeline_service = PrTimelineService.new
+        # Fetch backend approved PRs separately
+        approved_pull_requests = base_scope.open
+          .where(backend_approval_status: "approved")
+          .order(pr_updated_at: :desc)
+          .limit(100) # Cap at 100 approved PRs
 
-      # Format PR data helper
-      format_pr = lambda do |pr|
-        failing_checks = pr.check_runs.failed.deduplicate_by_suite.map do |check|
-          {
-            name: check.suite_name || check.name,
-            status: check.status,
-            url: check.url,
-            description: check.description,
-            required: check.required
+        # Check if this is a non-vets-api repository that needs on-demand scraping
+        if has_repository_columns && repository_name != "vets-api" && base_scope.count == 0
+          # Check if we've already started scraping recently
+          scraping_key = "scraping_#{repository_owner}_#{repository_name}"
+          unless Rails.cache.read(scraping_key)
+            Rails.cache.write(scraping_key, true, expires_in: 5.minutes)
+            # Trigger on-demand scraping for this repository
+            FetchAllPullRequestsJob.perform_later(
+              repository_name: repository_name,
+              repository_owner: repository_owner
+            )
+          end
+        end
+
+        # If no PRs in database, return empty response
+        if open_pull_requests.empty? && approved_pull_requests.empty?
+          return {
+            pull_requests: [],
+            approved_pull_requests: [],
+            count: 0,
+            approved_count: 0,
+            repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
+            message: repository_name == "vets-api" ?
+              "Data is being refreshed. Please check back in a few minutes." :
+              "Loading data for #{repository_name}. This may take a few minutes for the first load.",
+            last_updated: nil,
+            updating: true
           }
         end
+
+        # Format PR data helper - optimized to load only failing checks
+        format_pr = lambda do |pr|
+          # Load only failed check runs from database instead of loading all via includes
+          failing_checks = CheckRun
+            .where(pull_request_id: pr.id)
+            .where(status: [ "failure", "error", "cancelled" ])
+            .select(:suite_name, :name, :status, :url, :description, :required)
+            .distinct
+            .map do |check|
+              {
+                name: check.suite_name || check.name,
+                status: check.status,
+                url: check.url,
+                description: check.description,
+                required: check.required
+              }
+            end
 
         # Create simple timeline from existing data to avoid API calls
         timeline_data = []
@@ -141,44 +156,40 @@ class Api::V1::ReviewsController < ApplicationController
         }
       end
 
-      # Format both sets of PRs
-      open_pr_data = open_pull_requests.map(&format_pr)
-      approved_pr_data = approved_pull_requests.map(&format_pr)
+        # Format both sets of PRs
+        open_pr_data = open_pull_requests.map(&format_pr)
+        approved_pr_data = approved_pull_requests.map(&format_pr)
 
-      # Get rate limit info
+        # Get the most recent PR update time
+        recent_pr_update = if repository_name && repository_owner
+          PullRequest
+            .where(repository_owner: repository_owner, repository_name: repository_name)
+            .maximum(:updated_at)
+        else
+          PullRequest.maximum(:updated_at)
+        end
+
+        # Return formatted data to be cached
+        {
+          pull_requests: open_pr_data,
+          approved_pull_requests: approved_pr_data,
+          count: open_pr_data.length,
+          approved_count: approved_pr_data.length,
+          repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
+          last_updated: recent_pr_update || Time.current
+        }
+      end # End of cache block
+
+      # Get rate limit info (not cached - always fresh)
       github_service = GithubService.new(owner: repository_owner, repo: repository_name)
       rate_limit_info = github_service.rate_limit rescue nil
 
-      # Get the actual refresh completion time from cache
-      cached_refresh_time = Rails.cache.read("last_refresh_time")
-
-      # Get the most recent PR update time
-      recent_pr_update = if repository_name && repository_owner
-        PullRequest
-          .where(repository_owner: repository_owner, repository_name: repository_name)
-          .maximum(:updated_at)
-      else
-        PullRequest.maximum(:updated_at)
-      end
-
-      # Use the more recent of the two timestamps
-      last_refresh_time = if cached_refresh_time && recent_pr_update
-        [ cached_refresh_time, recent_pr_update ].max
-      else
-        cached_refresh_time || recent_pr_update || Time.current
-      end
-
-      # Check if actually updating
+      # Check if actually updating (not cached - always fresh)
       refresh_status = Rails.cache.read("refresh_status") || {}
       is_updating = refresh_status[:updating] || false
 
-      render json: {
-        pull_requests: open_pr_data,
-        approved_pull_requests: approved_pr_data,
-        count: open_pr_data.length,
-        approved_count: approved_pr_data.length,
-        repository: repository_name && repository_owner ? "#{repository_owner}/#{repository_name}" : "All repositories",
-        last_updated: last_refresh_time,
+      # Merge cached data with fresh status info
+      render json: cached_data.merge({
         updating: is_updating,
         rate_limit: rate_limit_info ? {
           remaining: rate_limit_info.remaining,
@@ -186,7 +197,7 @@ class Api::V1::ReviewsController < ApplicationController
           resets_at: rate_limit_info.resets_at
         } : nil,
         api_calls_used: 0
-      }
+      })
     rescue => e
       Rails.logger.error "Error fetching PRs: #{e.message}"
       render json: { error: "Failed to fetch pull requests" }, status: :internal_server_error

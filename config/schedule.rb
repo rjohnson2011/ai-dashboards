@@ -4,15 +4,23 @@
 # Set the environment
 set :output, "log/cron.log"
 
-# Run the fetch pull request data job for all repositories every 30 minutes
-# Reduced from 15 minutes to minimize memory usage and API costs
-every 30.minutes do
+# Run the fetch pull request data job for all repositories
+# More frequent during business hours (8 AM - 8 PM EST) to handle higher PR volume
+every 15.minutes do
   runner <<-'RUBY'
-    RepositoryConfig.all.each do |repo|
-      FetchAllPullRequestsJob.perform_later(
-        repository_name: repo.name,
-        repository_owner: repo.owner
-      )
+    # Get current hour in EST
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+    current_hour = est_zone.now.hour
+
+    # Run every 15 minutes during business hours (8 AM - 8 PM EST)
+    # Run every 30 minutes outside business hours (skip every other run)
+    if (8..19).cover?(current_hour) || Time.current.min < 30
+      RepositoryConfig.all.each do |repo|
+        FetchAllPullRequestsJob.perform_later(
+          repository_name: repo.name,
+          repository_owner: repo.owner
+        )
+      end
     end
   RUBY
 end

@@ -76,24 +76,46 @@ class FetchAllPullRequestsJob < ApplicationJob
       GC.start(full_mark: false, immediate_sweep: true)
     end
 
+    # CRITICAL: Update merged/closed PRs on EVERY run (not just deep verification)
+    # This ensures merged PRs are removed from the board within 30 minutes instead of 24 hours
+    Rails.logger.info "[FetchAllPullRequestsJob] Checking for merged/closed PRs"
+    scope = PullRequest.where(state: "open")
+    scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
+    scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
+
+    # Find PRs that are marked "open" in DB but not in GitHub's open list
+    stale_pr_numbers = scope.where.not(number: master_prs.map(&:number)).pluck(:number)
+
+    if stale_pr_numbers.any?
+      Rails.logger.info "[FetchAllPullRequestsJob] Found #{stale_pr_numbers.count} potentially merged/closed PRs: #{stale_pr_numbers.inspect}"
+
+      stale_pr_numbers.each do |pr_number|
+        begin
+          actual_pr = github_service.pull_request(pr_number)
+          pr_record = scope.find_by(number: pr_number)
+          if pr_record
+            new_state = actual_pr.merged ? "merged" : "closed"
+            Rails.logger.info "[FetchAllPullRequestsJob] Updating PR ##{pr_number} from 'open' to '#{new_state}'"
+            pr_record.update!(state: new_state)
+          end
+        rescue Octokit::NotFound
+          pr_record = scope.find_by(number: pr_number)
+          pr_record&.destroy
+          Rails.logger.info "[FetchAllPullRequestsJob] Deleted PR ##{pr_number} (not found on GitHub)"
+        rescue => e
+          Rails.logger.error "[FetchAllPullRequestsJob] Error updating PR ##{pr_number}: #{e.message}"
+        end
+
+        # Small delay to avoid rate limiting
+        sleep 0.2
+      end
+    end
+
     # Only do expensive operations if deep_verification is true
-    # This includes checking closed/merged PRs, re-verifying reviews, and HTML scraping
+    # This includes re-verifying reviews and HTML scraping (merged PR detection moved above)
     # These operations should only run once or twice per day to minimize memory usage
     if deep_verification
-      Rails.logger.info "[FetchAllPullRequestsJob] Running deep verification (closed PRs, reviews, HTML scraping)"
-
-      # Clean up closed/merged PRs for this repository
-      scope = PullRequest.where(state: "open")
-      scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
-      scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
-      scope.where.not(number: master_prs.map(&:number)).each do |pr|
-        begin
-          actual_pr = github_service.pull_request(pr.number)
-          pr.update!(state: actual_pr.merged ? "merged" : "closed")
-        rescue Octokit::NotFound
-          pr.destroy
-        end
-      end
+      Rails.logger.info "[FetchAllPullRequestsJob] Running deep verification (review verification, HTML scraping)"
 
       # Verify PRs in "PRs Needing Team Review" for API lag issues
       verify_prs_needing_review(github_service, repository_name, repository_owner)

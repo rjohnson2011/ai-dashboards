@@ -297,21 +297,21 @@ class Api::V1::SprintMetricsController < ApplicationController
       .select("DISTINCT pull_requests.id")
       .count
 
-    days_in_sprint = (end_date - start_date).to_i + 1
+    # Count BUSINESS DAYS ONLY (Monday-Friday, excluding weekends)
+    business_days_in_sprint = count_business_days(start_date, end_date)
 
-    # Calculate days elapsed (from start to today, capped at total sprint days)
-    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+    # Calculate business days elapsed (from start to today, capped at total sprint business days)
     today = est_zone.now.to_date
-    days_elapsed = [ (today - start_date).to_i + 1, days_in_sprint ].min
-    days_elapsed = [ days_elapsed, 1 ].max # At least 1 day
+    business_days_elapsed = count_business_days(start_date, [ today, end_date ].min)
+    business_days_elapsed = [ business_days_elapsed, 1 ].max # At least 1 day
 
-    # Use days elapsed for average calculation
-    avg_per_day = days_elapsed > 0 ? (total_approvals.to_f / days_elapsed).round(1) : 0
+    # Use business days elapsed for average calculation
+    avg_per_day = business_days_elapsed > 0 ? (total_approvals.to_f / business_days_elapsed).round(1) : 0
 
     {
       total: total_approvals,
-      days: days_in_sprint,
-      days_elapsed: days_elapsed,
+      days: business_days_in_sprint,
+      days_elapsed: business_days_elapsed,
       average_per_day: avg_per_day
     }
   end
@@ -844,6 +844,24 @@ class Api::V1::SprintMetricsController < ApplicationController
         monthly_breakdown: monthly_breakdown
       }
     end
+  end
+
+  # Count business days (Monday-Friday) between two dates, inclusive
+  def count_business_days(start_date, end_date)
+    # Ensure start_date is before or equal to end_date
+    return 0 if start_date > end_date
+
+    count = 0
+    current_date = start_date
+
+    while current_date <= end_date
+      # Count only weekdays (Monday=1, Tuesday=2, ..., Friday=5)
+      # Saturday=6, Sunday=0
+      count += 1 unless [ 0, 6 ].include?(current_date.wday)
+      current_date += 1.day
+    end
+
+    count
   end
 
   def support_rotation_params

@@ -286,23 +286,12 @@ class HybridPrCheckerService
   end
 
   def adjust_backend_approval_check(checks, pr)
-    # Find the backend approval check
-    backend_check_found = false
+    # Find if the backend approval check exists from GitHub API
+    backend_check_found = checks.any? { |check| check[:name].include?("Succeed if backend approval is confirmed") }
 
-    checks.each do |check|
-      if check[:name].include?("Succeed if backend approval is confirmed")
-        backend_check_found = true
-        # Adjust status based on PR's backend approval
-        if pr.backend_approval_status == "approved"
-          check[:status] = "success"
-        else
-          # Not approved yet - show as pending (Expected)
-          check[:status] = "pending"
-        end
-      end
-    end
-
-    # If no backend approval check exists, add it as required
+    # Only add the backend approval check if it doesn't exist in the GitHub API response
+    # This ensures repos that require backend approval always show the check
+    # DO NOT override the status from GitHub API - trust GitHub's workflow logic
     if !backend_check_found
       checks << {
         name: "Require backend-review-group approval / Succeed if backend approval is confirmed (pull_request_review)",
@@ -317,14 +306,10 @@ class HybridPrCheckerService
   end
 
   def adjust_ready_for_review_check(checks, pr)
-    # If backend is approved, mark Pull Request Ready for Review check as success
-    if pr.backend_approval_status == "approved"
-      checks.each do |check|
-        if check[:name].include?("Pull Request Ready for Review") && check[:name].include?("Check Workflow Statuses")
-          check[:status] = "success"
-        end
-      end
-    end
+    # No longer override GitHub's check status
+    # Trust the GitHub API's check status completely
+    # The "Pull Request Ready for Review" check is already excluded from
+    # failure counts in calculate_overall_status (see line 326)
   end
 
   def calculate_overall_status(checks)

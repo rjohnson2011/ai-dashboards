@@ -4,51 +4,78 @@
 
 If you push code to GitHub but it doesn't deploy automatically to Render, you need to manually trigger a deployment.
 
-## Solution: Trigger Deployment Programmatically
+## Solution: Fully Programmatic Deployment via CLI
+
+**No dashboard required!** Everything is done via Render's REST API.
 
 ### One-Time Setup
 
-1. **Get your Deploy Hook URL from Render:**
-   - Go to https://dashboard.render.com
-   - Find your service (likely named "ai-dashboards" or "platform-code-reviews-api")
-   - Click on the service → **Settings** → scroll to **Deploy Hook**
-   - Copy the deploy hook URL (looks like: `https://api.render.com/deploy/srv-xxxxx?key=xxxxx`)
+1. **Create a Render API Key** (one of two methods):
 
-2. **Set the environment variable:**
+   **Method A: Via Dashboard** (Quick)
+   - Go to https://dashboard.render.com/u/settings#api-keys
+   - Click "Create API Key"
+   - Name it "deployment-automation"
+   - Copy the key (starts with `rnd_`)
+
+   **Method B: Via CLI** (Fully programmatic - requires existing key)
    ```bash
-   export RENDER_DEPLOY_HOOK="https://api.render.com/deploy/srv-xxxxx?key=xxxxx"
-   export ADMIN_TOKEN="your-admin-token"  # Already set in production
+   curl --request POST \
+     --url 'https://api.render.com/v1/api-keys' \
+     --header 'Authorization: Bearer YOUR_EXISTING_KEY' \
+     --header 'Content-Type: application/json' \
+     --data '{"name": "deployment-automation"}'
+   ```
+
+2. **Set environment variables:**
+   ```bash
+   export RENDER_API_KEY="rnd_xxxxx"
+   export ADMIN_TOKEN="your-admin-token"  # For verification endpoint
    ```
 
    Or add to your `~/.zshrc` or `~/.bashrc`:
    ```bash
-   echo 'export RENDER_DEPLOY_HOOK="https://api.render.com/deploy/srv-xxxxx?key=xxxxx"' >> ~/.zshrc
+   echo 'export RENDER_API_KEY="rnd_xxxxx"' >> ~/.zshrc
+   echo 'export ADMIN_TOKEN="your-admin-token"' >> ~/.zshrc
    ```
 
-### Trigger Deployment
+### Deploy!
 
 Once configured, simply run:
 
 ```bash
-./scripts/trigger_deployment.sh
+./scripts/deploy.sh
 ```
 
-This script will:
-1. Trigger the deployment on Render
-2. Wait 2 minutes for deployment to complete
-3. Test the verification endpoint to confirm new code is deployed
+This script will **automatically**:
+1. Fetch all your services from Render API
+2. Find the correct service (ai-dashboards or platform-code-reviews-api)
+3. Trigger the deployment
+4. Wait 2 minutes for deployment to complete
+5. Test the verification endpoint
+6. Compare deployed commit with local commit
+
+**No manual dashboard interaction required!**
 
 ### Manual Alternative
 
-If you prefer to trigger deployment manually without the script:
+If you prefer to use curl directly:
 
 ```bash
-curl "https://api.render.com/deploy/srv-xxxxx?key=xxxxx"
-```
+# 1. List services and find service ID
+curl --request GET \
+  --url 'https://api.render.com/v1/services' \
+  --header 'Accept: application/json' \
+  --header "Authorization: Bearer $RENDER_API_KEY"
 
-Wait 2-5 minutes, then verify:
+# 2. Trigger deployment (replace SERVICE_ID)
+curl --request POST \
+  --url "https://api.render.com/v1/services/SERVICE_ID/deploys" \
+  --header 'Accept: application/json' \
+  --header 'Content-Type: application/json' \
+  --header "Authorization: Bearer $RENDER_API_KEY"
 
-```bash
+# 3. Verify (wait 2-5 minutes)
 curl "https://ai-dashboards.onrender.com/api/v1/admin/verify_scraper_version?token=$ADMIN_TOKEN" | python3 -m json.tool
 ```
 

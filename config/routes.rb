@@ -26,6 +26,8 @@ Rails.application.routes.draw do
       get "admin/cron_status", to: "admin#cron_status"
       post "admin/run_task", to: "admin#run_task"
       post "admin/manual_scraper_run", to: "admin#manual_scraper_run"
+      get "admin/verify_scraper_version", to: "admin#verify_scraper_version"
+      get "health", to: "admin#health"
 
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"

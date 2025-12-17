@@ -518,6 +518,27 @@ module Api
           }, status: :internal_server_error
         end
       end
+
+      def verify_scraper_version
+        # Auth check
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        # Get commit hash
+        git_commit = `git rev-parse HEAD 2>/dev/null`.strip rescue "unknown"
+
+        render json: {
+          status: "ok",
+          git_commit: git_commit[0..7],
+          git_commit_full: git_commit,
+          hybrid_pr_checker_exists: defined?(HybridPrCheckerService).present?,
+          enhanced_scraper_exists: defined?(EnhancedGithubScraperService).present?,
+          fetch_all_pull_requests_job_path: FetchAllPullRequestsJob.instance_method(:fetch_pr_checks_inline).source_location&.first,
+          timestamp: Time.current
+        }
+      end
     end
   end
 end

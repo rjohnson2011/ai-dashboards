@@ -223,37 +223,45 @@ class FetchAllPullRequestsJob < ApplicationJob
   end
 
   def fetch_pr_checks_inline(pr)
-    # Reuse scraper instance for better memory efficiency
-    @scraper ||= EnhancedGithubScraperService.new(owner: pr.repository_owner, repo: pr.repository_name)
-    result = @scraper.scrape_pr_checks_detailed(pr.url)
+    # Use HybridPrCheckerService for faster API-based check fetching
+    @hybrid_service ||= HybridPrCheckerService.new
+    result = @hybrid_service.get_accurate_pr_checks(pr)
 
     # Update PR with check counts
     pr.update!(
       ci_status: result[:overall_status] || "unknown",
       total_checks: result[:total_checks] || 0,
       successful_checks: result[:successful_checks] || 0,
-      failed_checks: result[:failed_checks] || 0
+      failed_checks: result[:failed_checks] || 0,
+      pending_checks: result[:pending_checks] || 0
     )
 
-    # Store failing checks in cache
+    # Store failing checks in cache for frontend
     if result[:failed_checks] > 0 && result[:checks].any?
-      failing_checks = result[:checks].select { |c| [ "failure", "error", "cancelled" ].include?(c[:status]) }
+      failing_checks = result[:checks].select { |c| [ "failure", "error", "cancelled", "pending" ].include?(c[:status]) }
       Rails.cache.write("pr_#{pr.id}_failing_checks", failing_checks, expires_in: 1.hour)
     else
       Rails.cache.delete("pr_#{pr.id}_failing_checks")
     end
 
-    # Clear existing check runs and save new ones
-    pr.check_runs.destroy_all
-    result[:checks].each do |check|
-      pr.check_runs.create!(
-        name: check[:name],
-        status: check[:status] || "unknown",
-        url: check[:url],
-        description: check[:description],
-        required: check[:required] || false,
-        suite_name: check[:suite_name]
-      )
+    # Use upsert for check runs to avoid destroy_all + create! which is slow
+    # Only store checks if there are failures or if this is first time seeing them
+    if result[:checks].any? && (result[:failed_checks] > 0 || pr.check_runs.empty?)
+      pr.check_runs.destroy_all
+      check_runs_data = result[:checks].map do |check|
+        {
+          name: check[:name],
+          status: check[:status] || "unknown",
+          url: check[:url],
+          description: check[:description],
+          required: check[:required] || false,
+          suite_name: check[:suite_name],
+          pull_request_id: pr.id,
+          created_at: Time.current,
+          updated_at: Time.current
+        }
+      end
+      CheckRun.insert_all(check_runs_data) if check_runs_data.any?
     end
 
     # Update ready for backend review status

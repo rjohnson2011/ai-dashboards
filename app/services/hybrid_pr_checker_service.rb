@@ -170,16 +170,35 @@ class HybridPrCheckerService
   end
 
   def deduplicate_checks(all_checks)
-    seen_keys = Set.new
-    unique_checks = []
+    # Group checks by unique key (name + trigger type)
+    grouped_checks = {}
 
     all_checks.each do |check|
       # Create unique key based on check name and trigger type
       key = "#{check[:check_name] || check[:name]}-#{check[:trigger_type] || 'unknown'}"
 
-      unless seen_keys.include?(key)
-        seen_keys.add(key)
-        unique_checks << check
+      # Keep track of all checks with this key
+      grouped_checks[key] ||= []
+      grouped_checks[key] << check
+    end
+
+    # For each group, pick the best check:
+    # 1. Prefer checks with timestamps (most recent)
+    # 2. If no timestamps, prefer successful over failing
+    # 3. Otherwise take the first one
+    unique_checks = grouped_checks.map do |key, checks|
+      if checks.length == 1
+        checks.first
+      else
+        # Try to find most recent check with timestamp
+        checks_with_time = checks.select { |c| c[:completed_at] || c[:updated_at] }
+        if checks_with_time.any?
+          checks_with_time.max_by { |c| c[:completed_at] || c[:updated_at] || Time.at(0) }
+        else
+          # No timestamps - prefer successful checks over failing/pending
+          successful = checks.find { |c| [ "success", "neutral" ].include?(c[:status]) }
+          successful || checks.first
+        end
       end
     end
 

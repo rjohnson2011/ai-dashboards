@@ -135,6 +135,17 @@ class Api::V1::SprintMetricsController < ApplicationController
       repository_owner
     )
 
+    # Check if there are previous/next sprints available for navigation
+    has_previous_sprint = SupportRotation
+      .where(repository_name: repository_name, repository_owner: repository_owner)
+      .where("end_date < ?", current_sprint.start_date)
+      .exists?
+
+    has_next_sprint = SupportRotation
+      .where(repository_name: repository_name, repository_owner: repository_owner)
+      .where("start_date > ?", current_sprint.end_date)
+      .exists?
+
     render json: {
       current_sprint: {
         sprint_number: current_sprint.sprint_number,
@@ -151,7 +162,9 @@ class Api::V1::SprintMetricsController < ApplicationController
       dependabot_metrics: dependabot_metrics,
       approved_unmerged_count: approved_unmerged_count,
       upcoming_rotations: upcoming_rotations,
-      backend_approved_closed: backend_approved_closed
+      backend_approved_closed: backend_approved_closed,
+      has_previous_sprint: has_previous_sprint,
+      has_next_sprint: has_next_sprint
     }
   end
 

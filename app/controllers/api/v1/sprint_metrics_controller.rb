@@ -766,13 +766,15 @@ class Api::V1::SprintMetricsController < ApplicationController
 
       # Use database-level aggregation to avoid loading all PRs into memory
       # Get counts by month and state using SQL GROUP BY
+      # Use approved_at (when backend approved) instead of pr_updated_at (any random update)
+      # Fall back to pr_updated_at for older PRs that don't have approved_at
       monthly_counts = PullRequest
         .joins(:pull_request_reviews)
         .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
         .where(state: [ "closed", "merged" ])
-        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
         .where(repository_name: repo_name, repository_owner: repo_owner)
-        .group("DATE_TRUNC('month', pull_requests.pr_updated_at)", "pull_requests.state")
+        .group("DATE_TRUNC('month', COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at))", "pull_requests.state")
         .count
 
       # Overall stats using database COUNT
@@ -780,7 +782,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         .joins(:pull_request_reviews)
         .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
         .where(state: [ "closed", "merged" ])
-        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
         .where(repository_name: repo_name, repository_owner: repo_owner)
         .distinct
         .count
@@ -789,7 +791,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         .joins(:pull_request_reviews)
         .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
         .where(state: "merged")
-        .where("pull_requests.pr_updated_at >= ?", six_months_ago)
+        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
         .where(repository_name: repo_name, repository_owner: repo_owner)
         .distinct
         .count
@@ -808,21 +810,21 @@ class Api::V1::SprintMetricsController < ApplicationController
           .joins(:pull_request_reviews)
           .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
           .where(state: [ "closed", "merged" ])
-          .where("pull_requests.pr_updated_at >= ? AND pull_requests.pr_updated_at < ?",
+          .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ? AND COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) < ?",
                  month_timestamp,
                  month_timestamp + 1.month)
           .where(repository_name: repo_name, repository_owner: repo_owner)
           .distinct
           .limit(5)
-          .pluck(:number, :title, :url, :state, :author, :pr_updated_at)
-          .map do |(number, title, url, state, author, updated_at)|
+          .pluck(:number, :title, :url, :state, :author, Arel.sql("COALESCE(approved_at, pr_updated_at)"))
+          .map do |(number, title, url, state, author, approved_date)|
             {
               number: number,
               title: title,
               url: url,
               state: state,
               author: author,
-              closed_at: updated_at,
+              closed_at: approved_date,
               approved_by: [] # Omit approvers to save queries
             }
           end

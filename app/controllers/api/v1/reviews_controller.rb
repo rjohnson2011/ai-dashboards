@@ -241,6 +241,34 @@ class Api::V1::ReviewsController < ApplicationController
     end
   end
 
+  def version
+    begin
+      # Get git commit hash
+      git_commit = `git rev-parse HEAD 2>/dev/null`.strip rescue "unknown"
+      git_branch = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip rescue "unknown"
+
+      render json: {
+        status: "ok",
+        version: "1.0.0",
+        git_commit: git_commit[0..7],
+        git_commit_full: git_commit,
+        git_branch: git_branch,
+        rails_version: Rails.version,
+        ruby_version: RUBY_VERSION,
+        environment: Rails.env,
+        deployed_at: Time.current,
+        services: {
+          hybrid_pr_checker: defined?(HybridPrCheckerService).present?,
+          github_service: defined?(GithubService).present?,
+          fetch_all_prs_job: defined?(FetchAllPullRequestsJob).present?
+        }
+      }
+    rescue => e
+      Rails.logger.error "Error getting version: #{e.message}"
+      render json: { error: "Failed to get version" }, status: :internal_server_error
+    end
+  end
+
   def show
     repository_name = params[:repository_name] || ENV["GITHUB_REPO"]
     repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]

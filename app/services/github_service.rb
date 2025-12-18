@@ -178,6 +178,13 @@ class GithubService
     }
   end
 
+  def pull_request_commits(pr_number)
+    @client.pull_request_commits("#{@owner}/#{@repo}", pr_number)
+  rescue Octokit::Error => e
+    Rails.logger.error "GitHub API Error fetching PR commits: #{e.message}"
+    []
+  end
+
   private
 
   def repository_path

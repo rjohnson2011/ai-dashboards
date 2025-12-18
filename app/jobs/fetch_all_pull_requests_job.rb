@@ -264,6 +264,18 @@ class FetchAllPullRequestsJob < ApplicationJob
       CheckRun.insert_all(check_runs_data) if check_runs_data.any?
     end
 
+    # Check for commits after backend approval
+    # This pre-populates the cache so the frontend doesn't need to make API calls
+    if pr.backend_approval_status == "approved"
+      begin
+        # This will check and cache the result
+        pr.has_commits_after_backend_approval?
+        Rails.logger.info "[FetchAllPullRequestsJob] Checked commits after approval for PR ##{pr.number}"
+      rescue => e
+        Rails.logger.error "[FetchAllPullRequestsJob] Error checking commits after approval for PR ##{pr.number}: #{e.message}"
+      end
+    end
+
     # Update ready for backend review status
     pr.update_ready_for_backend_review!
 

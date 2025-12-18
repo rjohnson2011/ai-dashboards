@@ -195,9 +195,69 @@ class PullRequest < ApplicationRecord
     end
   end
 
+  def has_commits_after_backend_approval?
+    # Check if PR has backend approval
+    return false unless backend_approval_status == "approved"
+
+    # Get the timestamp of the last backend approval
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    last_backend_approval = pull_request_reviews
+      .where(state: PullRequestReview::APPROVED)
+      .where(user: backend_members)
+      .order(submitted_at: :desc)
+      .first
+
+    return false unless last_backend_approval
+
+    # Check cache first to avoid repeated API calls
+    cache_key = "pr_#{id}_commits_after_approval"
+    cached_result = Rails.cache.read(cache_key)
+    return cached_result unless cached_result.nil?
+
+    # Fetch commits from GitHub
+    begin
+      github_service = GithubService.new(owner: repository_owner, repo: repository_name)
+      commits = github_service.pull_request_commits(number)
+
+      # Check if any commits by the PR author happened after the last backend approval
+      author_commits_after_approval = commits.any? do |commit|
+        commit_author = commit.commit.author.name rescue commit.author&.login rescue nil
+        commit_date = commit.commit.author.date rescue nil
+
+        # Check if commit is by the PR author and happened after approval
+        (commit_author == author || commit.author&.login == author) &&
+          commit_date &&
+          commit_date > last_backend_approval.submitted_at
+      end
+
+      # Cache the result for 1 hour
+      Rails.cache.write(cache_key, author_commits_after_approval, expires_in: 1.hour)
+      author_commits_after_approval
+    rescue => e
+      Rails.logger.error "Error checking commits after approval for PR ##{number}: #{e.message}"
+      false
+    end
+  end
+
   def changes_requested_info
     # Get backend team members
     backend_members = BackendReviewGroupMember.pluck(:username)
+
+    # Check for commits after backend approval (new logic)
+    if has_commits_after_backend_approval?
+      last_backend_approval = pull_request_reviews
+        .where(state: PullRequestReview::APPROVED)
+        .where(user: backend_members)
+        .order(submitted_at: :desc)
+        .first
+
+      return {
+        status: "new_commits_after_approval",
+        message: "New commits by author",
+        backend_approver: last_backend_approval.user,
+        approved_at: last_backend_approval.submitted_at
+      }
+    end
 
     # Check for ANY DISMISSED reviews (indicates new commits invalidated previous approvals)
     has_dismissed_reviews = pull_request_reviews.where(state: "DISMISSED").exists?

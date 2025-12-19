@@ -21,8 +21,8 @@ class FetchAllPullRequestsJob < ApplicationJob
     master_prs = open_prs.select { |pr| pr.base.ref == "master" }
     Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
 
-    # Process PRs in batches to avoid memory spikes
-    master_prs.each_slice(10) do |batch|
+    # Process PRs in smaller batches to avoid memory spikes (reduced from 10 to 3)
+    master_prs.each_slice(3) do |batch|
       batch.each do |pr_data|
       # Find by github_id to avoid duplicate key violations
       pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
@@ -49,27 +49,12 @@ class FetchAllPullRequestsJob < ApplicationJob
         head_sha: pr_data.head.sha
       )
 
-        # Only fetch comments during deep verification to save memory
-        if deep_verification
-          begin
-            comments = github_service.pull_request_comments(pr_data.number)
-            comments.each do |comment_data|
-              PullRequestComment.find_or_create_by(github_id: comment_data.id) do |comment|
-                comment.pull_request = pr
-                comment.user = comment_data.user.login
-                comment.body = comment_data.body
-                comment.commented_at = comment_data.created_at
-              end
-            end
-          rescue => e
-            Rails.logger.error "[FetchAllPullRequestsJob] Error fetching comments for PR ##{pr_data.number}: #{e.message}"
-          end
-        end
+        # Skip comments fetching entirely - not used by dashboard
+        # Comments consume memory and aren't displayed anywhere
 
-        # Fetch checks inline to avoid queuing 100+ simultaneous scraping jobs
-        # Add small delay to avoid memory spikes from simultaneous Nokogiri parsing
+        # Fetch checks inline for dashboard display
+        # Skip delay to speed up processing
         fetch_pr_checks_inline(pr)
-        sleep 0.2
       end
 
       # Force garbage collection after each batch to free memory
@@ -111,17 +96,20 @@ class FetchAllPullRequestsJob < ApplicationJob
       end
     end
 
-    # Only do expensive operations if deep_verification is true
-    # This includes re-verifying reviews and HTML scraping (merged PR detection moved above)
-    # These operations should only run once or twice per day to minimize memory usage
+    # SKIP deep verification entirely during regular runs to minimize memory usage
+    # Deep verification (HTML scraping, review re-verification) is VERY memory-intensive
+    # Only run once per day at 1 AM when traffic is low
     if deep_verification
       Rails.logger.info "[FetchAllPullRequestsJob] Running deep verification (review verification, HTML scraping)"
 
       # Verify PRs in "PRs Needing Team Review" for API lag issues
+      # Process in smaller batches (5 -> 3) to reduce memory
       verify_prs_needing_review(github_service, repository_name, repository_owner)
 
       # Web scraping verification as final check
-      verify_prs_via_html_scraping(repository_name, repository_owner)
+      # SKIP THIS - most memory-intensive operation
+      # verify_prs_via_html_scraping(repository_name, repository_owner)
+      Rails.logger.info "[FetchAllPullRequestsJob] Skipping HTML scraping to minimize memory usage"
     else
       Rails.logger.info "[FetchAllPullRequestsJob] Skipping deep verification to minimize memory usage"
     end
@@ -156,8 +144,8 @@ class FetchAllPullRequestsJob < ApplicationJob
 
     updated_count = 0
 
-    # Process in batches of 5 to minimize memory usage
-    needs_review_pr_ids.each_slice(5) do |batch_ids|
+    # Process in batches of 3 to minimize memory usage (reduced from 5)
+    needs_review_pr_ids.each_slice(3) do |batch_ids|
       PullRequest.where(id: batch_ids).each do |pr|
         # Skip if truly exempt or already has approvals
         next if pr.truly_exempt_from_backend_review?

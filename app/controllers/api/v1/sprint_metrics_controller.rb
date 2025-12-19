@@ -769,8 +769,10 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def calculate_backend_approved_closed_prs(repo_name, repo_owner)
-    # Cache key includes repo and date to invalidate daily
-    cache_key = "backend_approved_closed_prs:#{repo_owner}:#{repo_name}:#{Date.today}"
+    # Cache key includes repo, date, and version to bust stale cache
+    # Increment version when calculation logic changes
+    cache_version = "v2"
+    cache_key = "backend_approved_closed_prs:#{cache_version}:#{repo_owner}:#{repo_name}:#{Date.today}"
 
     # Cache for 24 hours - historical data doesn't change, only need to add today's PRs
     Rails.cache.fetch(cache_key, expires_in: 24.hours) do

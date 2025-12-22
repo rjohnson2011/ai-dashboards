@@ -771,38 +771,41 @@ class Api::V1::SprintMetricsController < ApplicationController
   def calculate_backend_approved_closed_prs(repo_name, repo_owner)
     # Cache key includes repo, date, and version to bust stale cache
     # Increment version when calculation logic changes
-    cache_version = "v3" # Incremented due to query logic change
-    cache_key = "backend_approved_closed_prs:#{cache_version}:#{repo_owner}:#{repo_name}:#{Date.today}"
+    cache_version = "v4" # v4: Removed state filter, added multi-repo support
+    cache_key = "backend_team_reviews:#{cache_version}:#{repo_owner}:all_repos:#{Date.today}"
 
     # Cache for 24 hours - historical data doesn't change, only need to add today's PRs
     Rails.cache.fetch(cache_key, expires_in: 24.hours) do
       backend_members = BackendReviewGroupMember.pluck(:username)
       six_months_ago = 6.months.ago
 
-      # FIXED: Count PRs by when they received backend approval (review submission date)
-      # Previously used PR's approved_at/updated_at which was incorrect
-      # Now groups by the actual review submission timestamp
+      # Count ALL PRs reviewed by backend team in a given month (backend team performance metric)
+      # Includes all PR states (open, closed, merged) to show full review workload
+      # Queries across all 4 repositories: vets-api, vets-json-schema, vets-api-mockdata, platform-atlas
 
       # Build subquery to get first backend approval for each PR
       # This uses raw SQL since ActiveRecord can't handle DISTINCT ON with GROUP BY well
       # Use connection.quote to prevent SQL injection
       conn = ActiveRecord::Base.connection
       quoted_members = backend_members.map { |m| conn.quote(m) }.join(",")
-      quoted_repo_name = conn.quote(repo_name)
       quoted_repo_owner = conn.quote(repo_owner)
       quoted_date = conn.quote(six_months_ago.iso8601)
+
+      # Query all 4 repositories
+      repositories = [ "vets-api", "vets-json-schema", "vets-api-mockdata", "platform-atlas" ]
+      quoted_repos = repositories.map { |r| conn.quote(r) }.join(",")
 
       subquery = <<-SQL
         SELECT DISTINCT ON (pr.id)
           pr.id,
           pr.state,
+          pr.repository_name,
           pr_reviews.submitted_at as approval_date
         FROM pull_requests pr
         INNER JOIN pull_request_reviews pr_reviews ON pr_reviews.pull_request_id = pr.id
         WHERE pr_reviews.state = 'APPROVED'
           AND pr_reviews.user IN (#{quoted_members})
-          AND pr.state IN ('closed', 'merged')
-          AND pr.repository_name = #{quoted_repo_name}
+          AND pr.repository_name IN (#{quoted_repos})
           AND pr.repository_owner = #{quoted_repo_owner}
           AND pr_reviews.submitted_at >= #{quoted_date}
         ORDER BY pr.id, pr_reviews.submitted_at ASC
@@ -830,31 +833,34 @@ class Api::V1::SprintMetricsController < ApplicationController
         monthly_counts[month_key] = row["count"].to_i
       end
 
-      # Get total counts
+      # Get total counts by state
       total_query = "SELECT COUNT(*) as count, state FROM (#{subquery}) as approved_prs GROUP BY state"
       # brakeman:ignore:SQL
       total_results = ActiveRecord::Base.connection.execute(total_query)
 
+      # Count all states (open, closed, merged)
       merged_count = total_results.find { |r| r["state"] == "merged" }&.fetch("count", 0)&.to_i || 0
       closed_count = total_results.find { |r| r["state"] == "closed" }&.fetch("count", 0)&.to_i || 0
-      total_count = merged_count + closed_count
+      open_count = total_results.find { |r| r["state"] == "open" }&.fetch("count", 0)&.to_i || 0
+      total_count = merged_count + closed_count + open_count
 
       # Build monthly breakdown from aggregated counts
       monthly_breakdown = monthly_counts.group_by { |(month_timestamp, _state), _count| month_timestamp }.map do |month_timestamp, group|
         month_date = month_timestamp.to_date
         merged = group.find { |(_, state), _| state == "merged" }&.last || 0
         closed = group.find { |(_, state), _| state == "closed" }&.last || 0
+        open = group.find { |(_, state), _| state == "open" }&.last || 0
 
         # Fetch sample PRs approved in this month (first backend approval in this month)
+        # Include ALL states to show full review workload
         sample_prs = PullRequest
           .select("pull_requests.*, MIN(pull_request_reviews.submitted_at) as first_backend_approval")
           .joins(:pull_request_reviews)
           .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-          .where(state: [ "closed", "merged" ])
           .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at < ?",
                  month_timestamp,
                  month_timestamp + 1.month)
-          .where(repository_name: repo_name, repository_owner: repo_owner)
+          .where(repository_name: repositories, repository_owner: repo_owner)
           .group("pull_requests.id")
           .limit(5)
           .map do |pr|
@@ -872,9 +878,10 @@ class Api::V1::SprintMetricsController < ApplicationController
         {
           month: month_date.strftime("%B %Y"),
           month_date: month_date,
-          total: merged + closed,
+          total: merged + closed + open,
           merged: merged,
           closed: closed,
+          open: open,
           prs: sample_prs
         }
       end.sort_by { |m| m[:month_date] }.reverse
@@ -883,6 +890,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         total: total_count,
         merged: merged_count,
         closed: closed_count,
+        open: open_count,
         monthly_breakdown: monthly_breakdown
       }
     end

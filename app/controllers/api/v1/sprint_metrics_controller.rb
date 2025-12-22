@@ -771,7 +771,7 @@ class Api::V1::SprintMetricsController < ApplicationController
   def calculate_backend_approved_closed_prs(repo_name, repo_owner)
     # Cache key includes repo, date, and version to bust stale cache
     # Increment version when calculation logic changes
-    cache_version = "v4" # v4: Removed state filter, added multi-repo support
+    cache_version = "v5" # v5: Show all PRs (removed 5 PR limit)
     cache_key = "backend_team_reviews:#{cache_version}:#{repo_owner}:all_repos:#{Date.today}"
 
     # Cache for 24 hours - historical data doesn't change, only need to add today's PRs
@@ -851,7 +851,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         closed = group.find { |(_, state), _| state == "closed" }&.last || 0
         open = group.find { |(_, state), _| state == "open" }&.last || 0
 
-        # Fetch sample PRs approved in this month (first backend approval in this month)
+        # Fetch all PRs approved in this month (first backend approval in this month)
         # Include ALL states to show full review workload
         sample_prs = PullRequest
           .select("pull_requests.*, MIN(pull_request_reviews.submitted_at) as first_backend_approval")
@@ -862,8 +862,13 @@ class Api::V1::SprintMetricsController < ApplicationController
                  month_timestamp + 1.month)
           .where(repository_name: repositories, repository_owner: repo_owner)
           .group("pull_requests.id")
-          .limit(5)
           .map do |pr|
+            # Get backend team members who approved this PR
+            approvers = pr.pull_request_reviews
+              .where(state: "APPROVED", user: backend_members)
+              .pluck(:user)
+              .uniq
+
             {
               number: pr.number,
               title: pr.title,
@@ -871,7 +876,7 @@ class Api::V1::SprintMetricsController < ApplicationController
               state: pr.state,
               author: pr.author,
               closed_at: pr.first_backend_approval,
-              approved_by: [] # Omit approvers to save queries
+              approved_by: approvers
             }
           end
 

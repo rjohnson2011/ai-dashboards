@@ -771,7 +771,7 @@ class Api::V1::SprintMetricsController < ApplicationController
   def calculate_backend_approved_closed_prs(repo_name, repo_owner)
     # Cache key includes repo, date, and version to bust stale cache
     # Increment version when calculation logic changes
-    cache_version = "v2"
+    cache_version = "v3" # Incremented due to query logic change
     cache_key = "backend_approved_closed_prs:#{cache_version}:#{repo_owner}:#{repo_name}:#{Date.today}"
 
     # Cache for 24 hours - historical data doesn't change, only need to add today's PRs
@@ -779,39 +779,65 @@ class Api::V1::SprintMetricsController < ApplicationController
       backend_members = BackendReviewGroupMember.pluck(:username)
       six_months_ago = 6.months.ago
 
-      # Use database-level aggregation to avoid loading all PRs into memory
-      # Get counts by month and state using SQL GROUP BY
-      # Use approved_at (when backend approved) instead of pr_updated_at (any random update)
-      # Fall back to pr_updated_at for older PRs that don't have approved_at
-      monthly_counts = PullRequest
-        .joins(:pull_request_reviews)
-        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-        .where(state: [ "closed", "merged" ])
-        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
-        .where(repository_name: repo_name, repository_owner: repo_owner)
-        .group("DATE_TRUNC('month', COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at))", "pull_requests.state")
-        .count
+      # FIXED: Count PRs by when they received backend approval (review submission date)
+      # Previously used PR's approved_at/updated_at which was incorrect
+      # Now groups by the actual review submission timestamp
 
-      # Overall stats using database COUNT
-      total_count = PullRequest
-        .joins(:pull_request_reviews)
-        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-        .where(state: [ "closed", "merged" ])
-        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
-        .where(repository_name: repo_name, repository_owner: repo_owner)
-        .distinct
-        .count
+      # Build subquery to get first backend approval for each PR
+      # This uses raw SQL since ActiveRecord can't handle DISTINCT ON with GROUP BY well
+      # Use connection.quote to prevent SQL injection
+      conn = ActiveRecord::Base.connection
+      quoted_members = backend_members.map { |m| conn.quote(m) }.join(",")
+      quoted_repo_name = conn.quote(repo_name)
+      quoted_repo_owner = conn.quote(repo_owner)
+      quoted_date = conn.quote(six_months_ago.iso8601)
 
-      merged_count = PullRequest
-        .joins(:pull_request_reviews)
-        .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-        .where(state: "merged")
-        .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ?", six_months_ago)
-        .where(repository_name: repo_name, repository_owner: repo_owner)
-        .distinct
-        .count
+      subquery = <<-SQL
+        SELECT DISTINCT ON (pr.id)
+          pr.id,
+          pr.state,
+          pr_reviews.submitted_at as approval_date
+        FROM pull_requests pr
+        INNER JOIN pull_request_reviews pr_reviews ON pr_reviews.pull_request_id = pr.id
+        WHERE pr_reviews.state = 'APPROVED'
+          AND pr_reviews.user IN (#{quoted_members})
+          AND pr.state IN ('closed', 'merged')
+          AND pr.repository_name = #{quoted_repo_name}
+          AND pr.repository_owner = #{quoted_repo_owner}
+          AND pr_reviews.submitted_at >= #{quoted_date}
+        ORDER BY pr.id, pr_reviews.submitted_at ASC
+      SQL
 
-      closed_count = total_count - merged_count
+      # Use the subquery to count by month
+      monthly_query = <<-SQL
+        SELECT
+          DATE_TRUNC('month', approval_date) as month,
+          state,
+          COUNT(*) as count
+        FROM (#{subquery}) as approved_prs
+        GROUP BY DATE_TRUNC('month', approval_date), state
+      SQL
+
+      # brakeman:ignore:SQL
+      monthly_results = ActiveRecord::Base.connection.execute(monthly_query)
+
+      # Convert results to hash format
+      monthly_counts = {}
+      monthly_results.each do |row|
+        # row['month'] is already a Time object from PostgreSQL
+        month_time = row["month"].is_a?(Time) ? row["month"] : Time.parse(row["month"])
+        month_key = [ month_time, row["state"] ]
+        monthly_counts[month_key] = row["count"].to_i
+      end
+
+      # Get total counts
+      total_query = "SELECT COUNT(*) as count, state FROM (#{subquery}) as approved_prs GROUP BY state"
+      # brakeman:ignore:SQL
+      total_results = ActiveRecord::Base.connection.execute(total_query)
+
+      merged_count = total_results.find { |r| r["state"] == "merged" }&.fetch("count", 0)&.to_i || 0
+      closed_count = total_results.find { |r| r["state"] == "closed" }&.fetch("count", 0)&.to_i || 0
+      total_count = merged_count + closed_count
 
       # Build monthly breakdown from aggregated counts
       monthly_breakdown = monthly_counts.group_by { |(month_timestamp, _state), _count| month_timestamp }.map do |month_timestamp, group|
@@ -819,27 +845,26 @@ class Api::V1::SprintMetricsController < ApplicationController
         merged = group.find { |(_, state), _| state == "merged" }&.last || 0
         closed = group.find { |(_, state), _| state == "closed" }&.last || 0
 
-        # Only fetch sample PRs (limit 5) to minimize memory usage
-        # Historical data doesn't change, so we don't need to query this repeatedly
+        # Fetch sample PRs approved in this month (first backend approval in this month)
         sample_prs = PullRequest
+          .select("pull_requests.*, MIN(pull_request_reviews.submitted_at) as first_backend_approval")
           .joins(:pull_request_reviews)
           .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
           .where(state: [ "closed", "merged" ])
-          .where("COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) >= ? AND COALESCE(pull_requests.approved_at, pull_requests.pr_updated_at) < ?",
+          .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at < ?",
                  month_timestamp,
                  month_timestamp + 1.month)
           .where(repository_name: repo_name, repository_owner: repo_owner)
-          .distinct
+          .group("pull_requests.id")
           .limit(5)
-          .pluck(:number, :title, :url, :state, :author, Arel.sql("COALESCE(approved_at, pr_updated_at)"))
-          .map do |(number, title, url, state, author, approved_date)|
+          .map do |pr|
             {
-              number: number,
-              title: title,
-              url: url,
-              state: state,
-              author: author,
-              closed_at: approved_date,
+              number: pr.number,
+              title: pr.title,
+              url: pr.url,
+              state: pr.state,
+              author: pr.author,
+              closed_at: pr.first_backend_approval,
               approved_by: [] # Omit approvers to save queries
             }
           end

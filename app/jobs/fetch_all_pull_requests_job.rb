@@ -114,10 +114,11 @@ class FetchAllPullRequestsJob < ApplicationJob
       Rails.logger.info "[FetchAllPullRequestsJob] Skipping deep verification to minimize memory usage"
     end
 
-    # Clear the reviews cache so fresh data is returned
-    cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{Time.current.hour}"
-    Rails.cache.delete(cache_key)
-    Rails.logger.info "[FetchAllPullRequestsJob] Cleared cache key: #{cache_key}"
+    # Update the scrape timestamp - this invalidates the reviews cache
+    # The reviews controller uses this timestamp in its cache key
+    scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
+    Rails.cache.write(scrape_key, Time.current.to_i, expires_in: 24.hours)
+    Rails.logger.info "[FetchAllPullRequestsJob] Updated scrape timestamp: #{scrape_key}"
 
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 

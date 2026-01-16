@@ -5,11 +5,15 @@ class Api::V1::ReviewsController < ApplicationController
       repository_name = params[:repository_name]
       repository_owner = params[:repository_owner]
 
-      # Cache key includes repo and current hour to balance freshness with performance
-      cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{Time.current.hour}"
+      # Cache key includes the last scrape timestamp - cache invalidates when scraper runs
+      # This ensures fresh data after each 15-min scrape while avoiding redundant DB queries
+      scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
+      last_scrape = Rails.cache.read(scrape_key) || 0
+      cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{last_scrape}"
 
-      # Cache for 1 hour - balances memory usage with data freshness
-      cached_data = Rails.cache.fetch(cache_key, expires_in: 1.hour) do
+      # Cache until next scrape (no fixed expiration needed since scraper updates the timestamp)
+      # Set a 2-hour max expiration as a safety fallback
+      cached_data = Rails.cache.fetch(cache_key, expires_in: 2.hours) do
         # Check if repository columns exist (for backwards compatibility)
         has_repository_columns = PullRequest.column_names.include?("repository_name")
 

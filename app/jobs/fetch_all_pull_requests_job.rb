@@ -114,6 +114,11 @@ class FetchAllPullRequestsJob < ApplicationJob
       Rails.logger.info "[FetchAllPullRequestsJob] Skipping deep verification to minimize memory usage"
     end
 
+    # Clear the reviews cache so fresh data is returned
+    cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{Time.current.hour}"
+    Rails.cache.delete(cache_key)
+    Rails.logger.info "[FetchAllPullRequestsJob] Cleared cache key: #{cache_key}"
+
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 
   rescue => e

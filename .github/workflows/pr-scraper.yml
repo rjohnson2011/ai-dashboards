@@ -1,0 +1,25 @@
+name: PR Scraper Cron
+
+on:
+  schedule:
+    # Run every 15 minutes during business hours (Mon-Fri, 6am-5pm PT / 13:00-22:00 UTC)
+    - cron: '*/15 13-22 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger PR Scraper
+        run: |
+          # Trigger scraper for each repository
+          for repo in "vets-api" "vets-json-schema" "vets-api-mockdata" "platform-atlas"; do
+            echo "Scraping $repo..."
+            curl -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=department-of-veterans-affairs" \
+              -H "Content-Type: application/json" \
+              --fail-with-body \
+              --max-time 300 || echo "Warning: Failed to scrape $repo"
+          done
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}

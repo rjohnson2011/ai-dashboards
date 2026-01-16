@@ -217,8 +217,12 @@ class FetchAllPullRequestsJob < ApplicationJob
 
   def fetch_pr_checks_inline(pr)
     # Use HybridPrCheckerService for faster API-based check fetching
-    @hybrid_service ||= HybridPrCheckerService.new
-    result = @hybrid_service.get_accurate_pr_checks(pr)
+    # Pass the PR's repository info to avoid "/" invalid repo errors
+    hybrid_service = HybridPrCheckerService.new(
+      owner: pr.repository_owner || ENV["GITHUB_OWNER"],
+      repo: pr.repository_name || ENV["GITHUB_REPO"]
+    )
+    result = hybrid_service.get_accurate_pr_checks(pr)
 
     # Update PR with check counts
     pr.update!(

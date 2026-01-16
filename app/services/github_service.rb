@@ -89,7 +89,7 @@ class GithubService
       # Convert GraphQL format to match REST API format for compatibility
       reviews.map do |review|
         OpenStruct.new(
-          id: review[:id].hash, # Convert GraphQL ID to numeric-like ID
+          id: Digest::SHA256.hexdigest(review[:id]).to_i(16) % (2**62), # Stable hash from GraphQL ID
           user: OpenStruct.new(login: review[:author][:login]),
           state: review[:state],
           submitted_at: Time.parse(review[:submittedAt])

@@ -356,6 +356,71 @@ module Api
         end
       end
 
+      def manual_scraper_run
+        # Simple auth check
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        begin
+          start_time = Time.current
+
+          Rails.logger.info "[AdminController] Manual scraper run initiated for #{repo_owner}/#{repo_name}"
+
+          # Run the job synchronously so we can return the results
+          FetchAllPullRequestsJob.perform_now(
+            repository_name: repo_name,
+            repository_owner: repo_owner
+          )
+
+          elapsed_time = Time.current - start_time
+
+          render json: {
+            success: true,
+            message: "Scraper job completed successfully",
+            repository: "#{repo_owner}/#{repo_name}",
+            duration_seconds: elapsed_time.round(2),
+            completed_at: Time.current,
+            note: "This includes API verification and HTML web scraping verification"
+          }
+        rescue => e
+          Rails.logger.error "[AdminController] Manual scraper run failed: #{e.message}"
+          Rails.logger.error e.backtrace.join("\n")
+
+          render json: {
+            success: false,
+            error: e.message,
+            error_class: e.class.to_s,
+            repository: "#{repo_owner}/#{repo_name}"
+          }, status: :internal_server_error
+        end
+      end
+
+      def verify_scraper_version
+        # Auth check
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        # Get commit hash
+        git_commit = `git rev-parse HEAD 2>/dev/null`.strip rescue "unknown"
+
+        render json: {
+          status: "ok",
+          git_commit: git_commit[0..7],
+          git_commit_full: git_commit,
+          hybrid_pr_checker_exists: defined?(HybridPrCheckerService).present?,
+          enhanced_scraper_exists: defined?(EnhancedGithubScraperService).present?,
+          fetch_all_pull_requests_job_path: FetchAllPullRequestsJob.instance_method(:fetch_pr_checks_inline).source_location&.first,
+          timestamp: Time.current
+        }
+      end
+
       private
 
       def cleanup_merged_prs_internal
@@ -473,71 +538,6 @@ module Api
         end
 
         render json: debug_info
-      end
-
-      def manual_scraper_run
-        # Simple auth check
-        unless params[:token] == ENV["ADMIN_TOKEN"]
-          render json: { error: "Unauthorized" }, status: :unauthorized
-          return
-        end
-
-        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
-        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
-
-        begin
-          start_time = Time.current
-
-          Rails.logger.info "[AdminController] Manual scraper run initiated for #{repo_owner}/#{repo_name}"
-
-          # Run the job synchronously so we can return the results
-          FetchAllPullRequestsJob.perform_now(
-            repository_name: repo_name,
-            repository_owner: repo_owner
-          )
-
-          elapsed_time = Time.current - start_time
-
-          render json: {
-            success: true,
-            message: "Scraper job completed successfully",
-            repository: "#{repo_owner}/#{repo_name}",
-            duration_seconds: elapsed_time.round(2),
-            completed_at: Time.current,
-            note: "This includes API verification and HTML web scraping verification"
-          }
-        rescue => e
-          Rails.logger.error "[AdminController] Manual scraper run failed: #{e.message}"
-          Rails.logger.error e.backtrace.join("\n")
-
-          render json: {
-            success: false,
-            error: e.message,
-            error_class: e.class.to_s,
-            repository: "#{repo_owner}/#{repo_name}"
-          }, status: :internal_server_error
-        end
-      end
-
-      def verify_scraper_version
-        # Auth check
-        unless params[:token] == ENV["ADMIN_TOKEN"]
-          render json: { error: "Unauthorized" }, status: :unauthorized
-          return
-        end
-
-        # Get commit hash
-        git_commit = `git rev-parse HEAD 2>/dev/null`.strip rescue "unknown"
-
-        render json: {
-          status: "ok",
-          git_commit: git_commit[0..7],
-          git_commit_full: git_commit,
-          hybrid_pr_checker_exists: defined?(HybridPrCheckerService).present?,
-          enhanced_scraper_exists: defined?(EnhancedGithubScraperService).present?,
-          fetch_all_pull_requests_job_path: FetchAllPullRequestsJob.instance_method(:fetch_pr_checks_inline).source_location&.first,
-          timestamp: Time.current
-        }
       end
     end
   end

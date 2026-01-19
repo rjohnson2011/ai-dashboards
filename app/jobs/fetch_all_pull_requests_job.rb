@@ -21,40 +21,42 @@ class FetchAllPullRequestsJob < ApplicationJob
     master_prs = open_prs.select { |pr| pr.base.ref == "master" }
     Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
 
-    # Process PRs in smaller batches to avoid memory spikes (reduced from 10 to 3)
-    master_prs.each_slice(3) do |batch|
+    # Process PRs in smaller batches to avoid memory spikes
+    master_prs.each_slice(5) do |batch|
       batch.each do |pr_data|
-      # Find by github_id to avoid duplicate key violations
-      pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
+        # Find by github_id to avoid duplicate key violations
+        pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
-      # Set repository info if it's a new record
-      if pr.new_record?
-        pr.repository_name = repository_name || ENV["GITHUB_REPO"]
-        pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
-      end
+        # Check if PR was updated since last scrape (compare head_sha)
+        pr_changed = pr.new_record? || pr.head_sha != pr_data.head.sha
 
-      pr.update!(
-        github_id: pr_data.id,
-        number: pr_data.number,
-        title: pr_data.title,
-        author: pr_data.user.login,
-        state: pr_data.state,
-        url: pr_data.html_url,
-        pr_created_at: pr_data.created_at,
-        pr_updated_at: pr_data.updated_at,
-        draft: pr_data.draft || false,
-        repository_name: repository_name || ENV["GITHUB_REPO"],
-        repository_owner: repository_owner || ENV["GITHUB_OWNER"],
-        labels: pr_data.labels.map(&:name),
-        head_sha: pr_data.head.sha
-      )
+        # Set repository info if it's a new record
+        if pr.new_record?
+          pr.repository_name = repository_name || ENV["GITHUB_REPO"]
+          pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
+        end
 
-        # Skip comments fetching entirely - not used by dashboard
-        # Comments consume memory and aren't displayed anywhere
+        pr.update!(
+          github_id: pr_data.id,
+          number: pr_data.number,
+          title: pr_data.title,
+          author: pr_data.user.login,
+          state: pr_data.state,
+          url: pr_data.html_url,
+          pr_created_at: pr_data.created_at,
+          pr_updated_at: pr_data.updated_at,
+          draft: pr_data.draft || false,
+          repository_name: repository_name || ENV["GITHUB_REPO"],
+          repository_owner: repository_owner || ENV["GITHUB_OWNER"],
+          labels: pr_data.labels.map(&:name),
+          head_sha: pr_data.head.sha
+        )
 
-        # Fetch checks inline for dashboard display
-        # Skip delay to speed up processing
-        fetch_pr_checks_inline(pr)
+        # Only fetch checks if PR changed (new commits) - saves memory & API calls
+        # This is the most memory-intensive operation
+        if pr_changed
+          fetch_pr_checks_inline(pr)
+        end
       end
 
       # Force garbage collection after each batch to free memory

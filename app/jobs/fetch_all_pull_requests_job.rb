@@ -27,8 +27,12 @@ class FetchAllPullRequestsJob < ApplicationJob
         # Find by github_id to avoid duplicate key violations
         pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
-        # Check if PR was updated since last scrape (compare head_sha)
-        pr_changed = pr.new_record? || pr.head_sha != pr_data.head.sha
+        # Check if PR was updated since last scrape
+        # - head_sha change = new commits (need to refetch checks)
+        # - pr_updated_at change = any update including reviews (need to refetch reviews)
+        pr_has_new_commits = pr.new_record? || pr.head_sha != pr_data.head.sha
+        pr_was_updated = pr.new_record? || pr.pr_updated_at != pr_data.updated_at
+        pr_changed = pr_has_new_commits || pr_was_updated
 
         # Set repository info if it's a new record
         if pr.new_record?

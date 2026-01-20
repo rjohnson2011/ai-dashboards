@@ -253,7 +253,7 @@ class Api::V1::ReviewsController < ApplicationController
 
       render json: {
         status: "ok",
-        version: "1.0.0",
+        version: "4.0.0",
         git_commit: git_commit[0..7],
         git_commit_full: git_commit,
         git_branch: git_branch,

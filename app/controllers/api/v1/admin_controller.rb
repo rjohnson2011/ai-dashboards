@@ -499,6 +499,36 @@ module Api
         }
       end
 
+      def fix_all_pr_statuses
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        updated = 0
+        errors = []
+
+        PullRequest.where(state: "open").find_each do |pr|
+          old_status = pr.backend_approval_status
+          pr.update_backend_approval_status!
+          pr.update_ready_for_backend_review!
+          pr.update_approval_status!
+
+          if pr.backend_approval_status != old_status
+            updated += 1
+            Rails.logger.info "[FixAllPRStatuses] PR ##{pr.number}: #{old_status} -> #{pr.backend_approval_status}"
+          end
+        rescue StandardError => e
+          errors << { pr_number: pr.number, error: e.message }
+        end
+
+        render json: {
+          success: true,
+          updated_count: updated,
+          errors: errors
+        }
+      end
+
       private
 
       def cleanup_merged_prs_internal

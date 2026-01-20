@@ -31,6 +31,7 @@ Rails.application.routes.draw do
       get "admin/backend_members", to: "admin#backend_members"
       post "admin/refresh_backend_members", to: "admin#refresh_backend_members"
       get "admin/debug_pr", to: "admin#debug_pr"
+      post "admin/fix_all_pr_statuses", to: "admin#fix_all_pr_statuses"
       get "health", to: "admin#health"
 
       # GitHub webhook endpoint

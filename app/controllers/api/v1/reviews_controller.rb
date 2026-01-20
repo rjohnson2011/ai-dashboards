@@ -7,7 +7,10 @@ class Api::V1::ReviewsController < ApplicationController
 
       # Cache key includes the last scrape timestamp - cache invalidates when scraper runs
       # This ensures fresh data after each 15-min scrape while avoiding redundant DB queries
-      scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
+      # When no specific repo is requested, use the vets-api scrape timestamp (main repo)
+      scrape_owner = repository_owner || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+      scrape_repo = repository_name || ENV["GITHUB_REPO"] || "vets-api"
+      scrape_key = "last_scrape:#{scrape_owner}:#{scrape_repo}"
       last_scrape = Rails.cache.read(scrape_key) || 0
       cache_key = "reviews_index:#{repository_owner}:#{repository_name}:#{last_scrape}"
 

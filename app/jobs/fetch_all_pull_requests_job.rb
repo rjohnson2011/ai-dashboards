@@ -30,9 +30,11 @@ class FetchAllPullRequestsJob < ApplicationJob
         # Check if PR was updated since last scrape
         # - head_sha change = new commits (need to refetch checks)
         # - pr_updated_at change = any update including reviews (need to refetch reviews)
+        # - not backend approved = always refetch reviews to catch approval changes
         pr_has_new_commits = pr.new_record? || pr.head_sha != pr_data.head.sha
         pr_was_updated = pr.new_record? || pr.pr_updated_at != pr_data.updated_at
-        pr_changed = pr_has_new_commits || pr_was_updated
+        needs_backend_review = pr.backend_approval_status != "approved"
+        pr_changed = pr_has_new_commits || pr_was_updated || needs_backend_review
 
         # Set repository info if it's a new record
         if pr.new_record?

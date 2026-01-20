@@ -449,6 +449,45 @@ module Api
         }
       end
 
+      def debug_pr
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        pr_number = params[:pr_number].to_i
+        pr = PullRequest.find_by(number: pr_number)
+
+        unless pr
+          render json: { error: "PR not found" }, status: :not_found
+          return
+        end
+
+        # Get all reviews from DB
+        db_reviews = pr.pull_request_reviews.map do |r|
+          { user: r.user, state: r.state, submitted_at: r.submitted_at }
+        end
+
+        # Calculate what backend approval status would be
+        reviews_by_user = pr.pull_request_reviews.group_by(&:user)
+        latest_reviews = reviews_by_user.map { |_user, reviews| reviews.max_by(&:submitted_at) }
+        approved_users = latest_reviews.select { |r| r.state == "APPROVED" }.map(&:user)
+        backend_members = BackendReviewGroupMember.pluck(:username)
+        intersection = approved_users & backend_members
+
+        render json: {
+          pr_number: pr_number,
+          backend_approval_status: pr.backend_approval_status,
+          db_reviews_count: db_reviews.count,
+          db_reviews: db_reviews,
+          latest_reviews: latest_reviews.map { |r| { user: r.user, state: r.state } },
+          approved_users: approved_users,
+          backend_members: backend_members,
+          intersection: intersection,
+          should_be_approved: intersection.any?
+        }
+      end
+
       private
 
       def cleanup_merged_prs_internal

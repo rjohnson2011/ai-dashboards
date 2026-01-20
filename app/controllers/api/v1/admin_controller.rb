@@ -368,20 +368,33 @@ module Api
 
         Rails.logger.info "[AdminController] Manual scraper run initiated for #{repo_owner}/#{repo_name}"
 
-        # Run async to avoid memory issues on free tier
-        # The job will update the scrape timestamp when done
-        FetchAllPullRequestsJob.perform_later(
-          repository_name: repo_name,
-          repository_owner: repo_owner
-        )
+        # Run synchronously - the :async adapter loses jobs on server restart/sleep
+        # GHA triggers this every 15 min so it's better to run inline
+        started_at = Time.current
+        begin
+          FetchAllPullRequestsJob.perform_now(
+            repository_name: repo_name,
+            repository_owner: repo_owner
+          )
 
-        render json: {
-          success: true,
-          message: "Scraper job queued successfully",
-          repository: "#{repo_owner}/#{repo_name}",
-          queued_at: Time.current,
-          note: "Job running in background. Data will refresh when complete."
-        }
+          render json: {
+            success: true,
+            message: "Scraper completed successfully",
+            repository: "#{repo_owner}/#{repo_name}",
+            started_at: started_at,
+            completed_at: Time.current,
+            duration_seconds: (Time.current - started_at).round(2)
+          }
+        rescue => e
+          Rails.logger.error "[AdminController] Scraper failed: #{e.message}"
+          render json: {
+            success: false,
+            message: "Scraper failed: #{e.message}",
+            repository: "#{repo_owner}/#{repo_name}",
+            started_at: started_at,
+            failed_at: Time.current
+          }, status: :internal_server_error
+        end
       end
 
       def verify_scraper_version

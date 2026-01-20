@@ -475,6 +475,14 @@ module Api
         backend_members = BackendReviewGroupMember.pluck(:username)
         intersection = approved_users & backend_members
 
+        # If fix param is passed, actually update the backend_approval_status
+        if params[:fix] == "true"
+          old_status = pr.backend_approval_status
+          pr.update_backend_approval_status!
+          pr.reload
+          new_status = pr.backend_approval_status
+        end
+
         render json: {
           pr_number: pr_number,
           backend_approval_status: pr.backend_approval_status,
@@ -484,7 +492,10 @@ module Api
           approved_users: approved_users,
           backend_members: backend_members,
           intersection: intersection,
-          should_be_approved: intersection.any?
+          should_be_approved: intersection.any?,
+          fixed: params[:fix] == "true",
+          old_status: old_status,
+          new_status: new_status
         }
       end
 

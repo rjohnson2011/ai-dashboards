@@ -79,6 +79,10 @@ class PullRequest < ApplicationRecord
   end
 
   def calculate_backend_approval_status
+    # Reload the association to ensure we have the latest reviews from DB
+    # This is necessary because destroy_all + create! doesn't clear the association cache
+    pull_request_reviews.reload
+
     # Get the latest review from each user (handles case where user changed from changes_requested to approved)
     reviews_by_user = pull_request_reviews.group_by(&:user)
     latest_reviews = reviews_by_user.map { |_user, reviews| reviews.max_by(&:submitted_at) }
@@ -343,6 +347,9 @@ class PullRequest < ApplicationRecord
   end
 
   def approval_summary
+    # Reload association to ensure we have latest reviews from DB
+    pull_request_reviews.reload
+
     # Get the latest review from each user
     reviews_by_user = pull_request_reviews.group_by(&:user)
     latest_reviews = reviews_by_user.map { |user, reviews| reviews.max_by(&:submitted_at) }

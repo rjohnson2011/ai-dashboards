@@ -77,6 +77,9 @@ The scraper MUST run synchronously (`perform_now`) because:
 ### Review Deduplication
 `github_service.rb` uses `Digest::SHA256.hexdigest(review[:id]).to_i(16) % (2**62)` for stable review IDs (Ruby's `.hash` method changes across restarts).
 
+### Association Cache Issue (Fixed Jan 2026)
+When reviews are updated via `destroy_all` + `create!`, ActiveRecord's association cache may still hold stale data. The `calculate_backend_approval_status` and `approval_summary` methods now call `pull_request_reviews.reload` before processing to ensure fresh data.
+
 ## Common Operations
 
 ### Manual Scraper Trigger
@@ -92,6 +95,17 @@ curl "https://ai-dashboards.onrender.com/api/v1/admin/cron_status?token=ADMIN_TO
 ### Check Version
 ```bash
 curl "https://ai-dashboards.onrender.com/api/v1/reviews/version"
+```
+
+### Debug PR Status
+```bash
+curl "https://ai-dashboards.onrender.com/api/v1/admin/debug_pr?token=ADMIN_TOKEN&pr_number=12345"
+# Add &fix=true to force recalculate the backend_approval_status
+```
+
+### Fix All PR Statuses
+```bash
+curl -X POST "https://ai-dashboards.onrender.com/api/v1/admin/fix_all_pr_statuses?token=ADMIN_TOKEN"
 ```
 
 ## Deployment

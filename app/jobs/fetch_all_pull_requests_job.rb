@@ -219,6 +219,36 @@ class FetchAllPullRequestsJob < ApplicationJob
   end
 
   def fetch_pr_checks_inline(pr)
+    github_service = GithubService.new(
+      owner: pr.repository_owner || ENV["GITHUB_OWNER"],
+      repo: pr.repository_name || ENV["GITHUB_REPO"]
+    )
+
+    # Fetch fresh reviews from GitHub on every PR update
+    # This ensures we capture review state changes (e.g., changes_requested -> approved)
+    begin
+      reviews = github_service.pull_request_reviews(pr.number)
+
+      # Only update if we got reviews back
+      if reviews.any?
+        pr.pull_request_reviews.destroy_all
+        reviews.each do |review_data|
+          PullRequestReview.create!(
+            pull_request_id: pr.id,
+            github_id: review_data.id,
+            user: review_data.user.login,
+            state: review_data.state,
+            submitted_at: review_data.submitted_at
+          )
+        end
+
+        # Update approval statuses after fetching reviews
+        pr.update_backend_approval_status!
+      end
+    rescue => e
+      Rails.logger.error "[FetchAllPullRequestsJob] Error fetching reviews for PR ##{pr.number}: #{e.message}"
+    end
+
     # Use HybridPrCheckerService for faster API-based check fetching
     # Pass the PR's repository info to avoid "/" invalid repo errors
     hybrid_service = HybridPrCheckerService.new(

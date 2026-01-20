@@ -1,0 +1,14 @@
+{
+  "ignored_warnings": [
+    {
+      "fingerprint": "b338c0a84869832117065d3a90ce9911e06bf1f3195bfdcd69d249b58fd1b4d2",
+      "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
+    },
+    {
+      "fingerprint": "39477d9518f63a61f07c515fed02f256e8b0b42b3212f6d596d8a59e1b242c04",
+      "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
+    }
+  ],
+  "updated": "2026-01-20",
+  "brakeman_version": "7.1.1"
+}

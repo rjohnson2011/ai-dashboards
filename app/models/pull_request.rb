@@ -79,10 +79,14 @@ class PullRequest < ApplicationRecord
   end
 
   def calculate_backend_approval_status
-    # Check if any backend review group member has approved
-    approved_users = pull_request_reviews
-      .where(state: PullRequestReview::APPROVED)
-      .pluck(:user)
+    # Get the latest review from each user (handles case where user changed from changes_requested to approved)
+    reviews_by_user = pull_request_reviews.group_by(&:user)
+    latest_reviews = reviews_by_user.map { |_user, reviews| reviews.max_by(&:submitted_at) }
+
+    # Check if any backend review group member has their latest review as APPROVED
+    approved_users = latest_reviews
+      .select { |review| review.state == PullRequestReview::APPROVED }
+      .map(&:user)
 
     backend_members = BackendReviewGroupMember.pluck(:username)
     backend_approved = (approved_users & backend_members).any?

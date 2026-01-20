@@ -418,6 +418,37 @@ module Api
         }
       end
 
+      def backend_members
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        members = BackendReviewGroupMember.pluck(:username)
+
+        render json: {
+          count: members.count,
+          members: members,
+          last_synced: BackendReviewGroupMember.maximum(:updated_at)
+        }
+      end
+
+      def refresh_backend_members
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        result = FetchBackendReviewGroupService.call
+
+        render json: {
+          success: result[:success],
+          count: result[:count],
+          error: result[:error],
+          members: BackendReviewGroupMember.pluck(:username)
+        }
+      end
+
       private
 
       def cleanup_merged_prs_internal

@@ -34,7 +34,7 @@ class FetchBackendReviewGroupService
     HTTParty.get(
       TEAM_URL,
       headers: {
-        "Authorization" => "token #{ENV['GITHUB_ACCESS_TOKEN']}",
+        "Authorization" => "token #{ENV['GITHUB_TOKEN']}",
         "Accept" => "application/vnd.github.v3+json"
       }
     )

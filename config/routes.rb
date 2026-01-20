@@ -28,6 +28,8 @@ Rails.application.routes.draw do
       post "admin/run_task", to: "admin#run_task"
       post "admin/manual_scraper_run", to: "admin#manual_scraper_run"
       get "admin/verify_scraper_version", to: "admin#verify_scraper_version"
+      get "admin/backend_members", to: "admin#backend_members"
+      post "admin/refresh_backend_members", to: "admin#refresh_backend_members"
       get "health", to: "admin#health"
 
       # GitHub webhook endpoint

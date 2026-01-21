@@ -83,12 +83,23 @@ class PullRequest < ApplicationRecord
     # This is necessary because destroy_all + create! doesn't clear the association cache
     pull_request_reviews.reload
 
-    # Get the latest review from each user (handles case where user changed from changes_requested to approved)
+    # Get the latest ACTIONABLE review from each user
+    # COMMENTED reviews don't change approval state - only APPROVED, CHANGES_REQUESTED, DISMISSED do
+    # This handles the case where someone approves and then comments (creates 2 review records)
     reviews_by_user = pull_request_reviews.group_by(&:user)
-    latest_reviews = reviews_by_user.map { |_user, reviews| reviews.max_by(&:submitted_at) }
+    latest_actionable_reviews = reviews_by_user.map do |_user, reviews|
+      # First try to find the latest actionable review (not COMMENTED)
+      actionable_reviews = reviews.reject { |r| r.state == PullRequestReview::COMMENTED }
+      if actionable_reviews.any?
+        actionable_reviews.max_by(&:submitted_at)
+      else
+        # If all reviews are COMMENTED, use the latest one
+        reviews.max_by(&:submitted_at)
+      end
+    end
 
-    # Check if any backend review group member has their latest review as APPROVED
-    approved_users = latest_reviews
+    # Check if any backend review group member has their latest actionable review as APPROVED
+    approved_users = latest_actionable_reviews
       .select { |review| review.state == PullRequestReview::APPROVED }
       .map(&:user)
 
@@ -350,15 +361,23 @@ class PullRequest < ApplicationRecord
     # Reload association to ensure we have latest reviews from DB
     pull_request_reviews.reload
 
-    # Get the latest review from each user
+    # Get the latest ACTIONABLE review from each user
+    # COMMENTED reviews don't change approval state - only APPROVED, CHANGES_REQUESTED, DISMISSED do
     reviews_by_user = pull_request_reviews.group_by(&:user)
-    latest_reviews = reviews_by_user.map { |user, reviews| reviews.max_by(&:submitted_at) }
+    latest_actionable_reviews = reviews_by_user.map do |_user, reviews|
+      actionable_reviews = reviews.reject { |r| r.state == PullRequestReview::COMMENTED }
+      if actionable_reviews.any?
+        actionable_reviews.max_by(&:submitted_at)
+      else
+        reviews.max_by(&:submitted_at)
+      end
+    end
 
     approved_users = []
     changes_requested_users = []
     commented_users = []
 
-    latest_reviews.each do |review|
+    latest_actionable_reviews.each do |review|
       case review.state
       when PullRequestReview::APPROVED
         approved_users << review.user

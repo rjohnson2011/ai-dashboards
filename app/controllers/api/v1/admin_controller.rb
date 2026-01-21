@@ -529,6 +529,33 @@ module Api
         }
       end
 
+      def verify_pr_accuracy
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+        sample_size = (params[:sample_size] || 30).to_i
+
+        result = VerifyPrAccuracyJob.perform_now(
+          repository_name: repo_name,
+          repository_owner: repo_owner,
+          sample_size: sample_size
+        )
+
+        render json: {
+          success: true,
+          verified_count: result[:verified_count],
+          discrepancies_found: result[:discrepancies_count],
+          discrepancies: result[:discrepancies],
+          message: result[:discrepancies_count] > 0 ?
+            "Found and auto-fixed #{result[:discrepancies_count]} discrepancies" :
+            "All #{result[:verified_count]} PRs verified correctly"
+        }
+      end
+
       private
 
       def cleanup_merged_prs_internal

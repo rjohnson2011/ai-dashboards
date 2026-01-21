@@ -58,14 +58,17 @@ class GithubService
   end
 
   def graphql_reviews(pr_number)
-    # Use GraphQL's latestReviews which provides the most recent review from each user
-    # This is more accurate than the REST API's reviews endpoint
+    # Fetch ALL reviews (not just latestReviews) so we can properly determine
+    # the latest actionable review per user. This is needed because:
+    # - When a user approves AND comments, GitHub creates 2 review records
+    # - latestReviews only returns one review per user (often the COMMENT, not APPROVAL)
+    # - We need all reviews to find the latest APPROVED/CHANGES_REQUESTED per user
     query = <<~GRAPHQL
       query {
         repository(owner: "#{@owner}", name: "#{@repo}") {
           pullRequest(number: #{pr_number}) {
             reviewDecision
-            latestReviews(last: 100) {
+            reviews(last: 100) {
               nodes {
                 author {
                   login
@@ -84,10 +87,13 @@ class GithubService
 
     if result && result[:data] && result[:data][:repository] && result[:data][:repository][:pullRequest]
       pr_data = result[:data][:repository][:pullRequest]
-      reviews = pr_data[:latestReviews][:nodes]
+      reviews = pr_data[:reviews][:nodes]
 
       # Convert GraphQL format to match REST API format for compatibility
-      reviews.map do |review|
+      # Filter out reviews with nil authors (deleted users)
+      reviews.filter_map do |review|
+        next if review[:author].nil?
+
         OpenStruct.new(
           id: Digest::SHA256.hexdigest(review[:id]).to_i(16) % (2**62), # Stable hash from GraphQL ID
           user: OpenStruct.new(login: review[:author][:login]),

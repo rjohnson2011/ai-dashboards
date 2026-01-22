@@ -92,7 +92,9 @@ class SeleniumCiVerifier
     )
 
     if response.success?
-      JSON.parse(response.body)
+      data = JSON.parse(response.body)
+      # API returns {pull_requests: [...]}
+      data["pull_requests"] || data
     else
       puts "Error fetching PRs: #{response.code}"
       []
@@ -108,9 +110,15 @@ class SeleniumCiVerifier
     # 2. PRs with pending CI
     # 3. Recent PRs
 
+    # Filter out drafts
+    prs = prs.reject { |pr| pr["draft"] == true }
+    puts "After filtering drafts: #{prs.length} PRs"
+
     failing = prs.select { |pr| pr["ci_status"] == "failure" }
     pending = prs.select { |pr| pr["ci_status"] == "pending" }
     others = prs - failing - pending
+
+    puts "Failing: #{failing.length}, Pending: #{pending.length}, Others: #{others.length}"
 
     selected = []
     selected.concat(failing.first(sample_size / 2))
@@ -118,7 +126,13 @@ class SeleniumCiVerifier
     remaining = sample_size - selected.length
     selected.concat(others.first(remaining))
 
-    selected.first(sample_size)
+    result = selected.first(sample_size)
+    puts "Selected #{result.length} PRs to verify"
+    result
+  rescue => e
+    puts "Error in select_prs_to_verify: #{e.message}"
+    puts e.backtrace.first(5).join("\n")
+    []
   end
 
   def setup_driver

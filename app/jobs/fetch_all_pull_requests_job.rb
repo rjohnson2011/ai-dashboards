@@ -1,8 +1,8 @@
 class FetchAllPullRequestsJob < ApplicationJob
   queue_as :default
 
-  def perform(repository_name: nil, repository_owner: nil, deep_verification: false)
-    Rails.logger.info "[FetchAllPullRequestsJob] Starting full PR update for #{repository_owner}/#{repository_name || 'default'} (deep_verification: #{deep_verification})"
+  def perform(repository_name: nil, repository_owner: nil, deep_verification: false, lite_mode: false)
+    Rails.logger.info "[FetchAllPullRequestsJob] Starting full PR update for #{repository_owner}/#{repository_name || 'default'} (deep_verification: #{deep_verification}, lite_mode: #{lite_mode})"
 
     github_service = GithubService.new(owner: repository_owner, repo: repository_name)
 
@@ -21,60 +21,67 @@ class FetchAllPullRequestsJob < ApplicationJob
     master_prs = open_prs.select { |pr| pr.base.ref == "master" }
     Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
 
-    # Create services once and reuse to avoid memory allocation per PR
-    shared_github_service = GithubService.new(owner: repository_owner, repo: repository_name)
-    shared_hybrid_service = HybridPrCheckerService.new(owner: repository_owner, repo: repository_name)
-
     # Clear the open_prs array to free memory - we only need master_prs from here
     open_prs = nil
     GC.start
 
-    # Process PRs in smaller batches to avoid memory spikes (reduced to 2 for 512MB limit)
-    master_prs.each_slice(2) do |batch|
-      batch.each do |pr_data|
-        # Find by github_id to avoid duplicate key violations
-        pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
+    # LITE MODE: Skip heavy operations (CI checks, reviews) for 512MB memory limit
+    # Only update basic PR info and state changes
+    if lite_mode
+      Rails.logger.info "[FetchAllPullRequestsJob] Running in LITE MODE - skipping CI checks and reviews"
+      process_prs_lite(master_prs, repository_name, repository_owner, github_service)
+    else
+      # Create services once and reuse to avoid memory allocation per PR
+      shared_github_service = GithubService.new(owner: repository_owner, repo: repository_name)
+      shared_hybrid_service = HybridPrCheckerService.new(owner: repository_owner, repo: repository_name)
 
-        # Check if PR was updated since last scrape
-        # - head_sha change = new commits (need to refetch checks)
-        # - pr_updated_at change = any update including reviews (need to refetch reviews)
-        # - not backend approved = always refetch reviews to catch approval changes
-        pr_has_new_commits = pr.new_record? || pr.head_sha != pr_data.head.sha
-        pr_was_updated = pr.new_record? || pr.pr_updated_at != pr_data.updated_at
-        needs_backend_review = pr.backend_approval_status != "approved"
-        pr_changed = pr_has_new_commits || pr_was_updated || needs_backend_review
+      # Process PRs in smaller batches to avoid memory spikes (reduced to 2 for 512MB limit)
+      master_prs.each_slice(2) do |batch|
+        batch.each do |pr_data|
+          # Find by github_id to avoid duplicate key violations
+          pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
-        # Set repository info if it's a new record
-        if pr.new_record?
-          pr.repository_name = repository_name || ENV["GITHUB_REPO"]
-          pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
+          # Check if PR was updated since last scrape
+          # - head_sha change = new commits (need to refetch checks)
+          # - pr_updated_at change = any update including reviews (need to refetch reviews)
+          # - not backend approved = always refetch reviews to catch approval changes
+          pr_has_new_commits = pr.new_record? || pr.head_sha != pr_data.head.sha
+          pr_was_updated = pr.new_record? || pr.pr_updated_at != pr_data.updated_at
+          needs_backend_review = pr.backend_approval_status != "approved"
+          pr_changed = pr_has_new_commits || pr_was_updated || needs_backend_review
+
+          # Set repository info if it's a new record
+          if pr.new_record?
+            pr.repository_name = repository_name || ENV["GITHUB_REPO"]
+            pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
+          end
+
+          pr.update!(
+            github_id: pr_data.id,
+            number: pr_data.number,
+            title: pr_data.title,
+            author: pr_data.user.login,
+            state: pr_data.state,
+            url: pr_data.html_url,
+            pr_created_at: pr_data.created_at,
+            pr_updated_at: pr_data.updated_at,
+            draft: pr_data.draft || false,
+            repository_name: repository_name || ENV["GITHUB_REPO"],
+            repository_owner: repository_owner || ENV["GITHUB_OWNER"],
+            labels: pr_data.labels.map(&:name),
+            head_sha: pr_data.head.sha
+          )
+
+          # Only fetch checks if PR changed (new commits) - saves memory & API calls
+          # This is the most memory-intensive operation
+          if pr_changed
+            fetch_pr_checks_inline(pr, shared_github_service, shared_hybrid_service)
+          end
         end
 
-        pr.update!(
-          github_id: pr_data.id,
-          number: pr_data.number,
-          title: pr_data.title,
-          author: pr_data.user.login,
-          state: pr_data.state,
-          url: pr_data.html_url,
-          pr_created_at: pr_data.created_at,
-          pr_updated_at: pr_data.updated_at,
-          draft: pr_data.draft || false,
-          repository_name: repository_name || ENV["GITHUB_REPO"],
-          repository_owner: repository_owner || ENV["GITHUB_OWNER"],
-          labels: pr_data.labels.map(&:name),
-          head_sha: pr_data.head.sha
-        )
-
-        # Only fetch checks if PR changed (new commits) - saves memory & API calls
-        # This is the most memory-intensive operation
-        if pr_changed
-          fetch_pr_checks_inline(pr, shared_github_service, shared_hybrid_service)
-        end
+        # Force garbage collection after each batch to free memory
+        GC.start(full_mark: false, immediate_sweep: true)
       end
-
-      # Force garbage collection after each batch to free memory
-      GC.start(full_mark: false, immediate_sweep: true)
     end
 
     # CRITICAL: Update merged/closed PRs on EVERY run (not just deep verification)
@@ -145,6 +152,76 @@ class FetchAllPullRequestsJob < ApplicationJob
   end
 
   private
+
+  # LITE MODE: Minimal memory footprint for 512MB Render limit
+  # Only updates basic PR info, state changes, and merged/closed detection
+  # Skips: CI checks, reviews fetching, approval status recalculation
+  def process_prs_lite(master_prs, repository_name, repository_owner, github_service)
+    processed = 0
+    master_prs.each_slice(5) do |batch|
+      batch.each do |pr_data|
+        pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
+
+        if pr.new_record?
+          pr.repository_name = repository_name || ENV["GITHUB_REPO"]
+          pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
+        end
+
+        pr.update!(
+          github_id: pr_data.id,
+          number: pr_data.number,
+          title: pr_data.title,
+          author: pr_data.user.login,
+          state: pr_data.state,
+          url: pr_data.html_url,
+          pr_created_at: pr_data.created_at,
+          pr_updated_at: pr_data.updated_at,
+          draft: pr_data.draft || false,
+          repository_name: repository_name || ENV["GITHUB_REPO"],
+          repository_owner: repository_owner || ENV["GITHUB_OWNER"],
+          labels: pr_data.labels.map(&:name),
+          head_sha: pr_data.head.sha
+        )
+        processed += 1
+      end
+      GC.start(full_mark: false, immediate_sweep: true)
+    end
+
+    Rails.logger.info "[FetchAllPullRequestsJob] LITE MODE: Updated #{processed} PRs (basic info only)"
+
+    # Still detect merged/closed PRs (low memory operation)
+    detect_merged_closed_prs(master_prs, repository_name, repository_owner, github_service)
+  end
+
+  def detect_merged_closed_prs(master_prs, repository_name, repository_owner, github_service)
+    scope = PullRequest.where(state: "open")
+    scope = scope.where(repository_name: repository_name || ENV["GITHUB_REPO"])
+    scope = scope.where(repository_owner: repository_owner || ENV["GITHUB_OWNER"])
+
+    stale_pr_numbers = scope.where.not(number: master_prs.map(&:number)).pluck(:number)
+
+    if stale_pr_numbers.any?
+      Rails.logger.info "[FetchAllPullRequestsJob] Found #{stale_pr_numbers.count} potentially merged/closed PRs"
+
+      stale_pr_numbers.each do |pr_number|
+        begin
+          actual_pr = github_service.pull_request(pr_number)
+          pr_record = scope.find_by(number: pr_number)
+          if pr_record
+            new_state = actual_pr.merged ? "merged" : "closed"
+            Rails.logger.info "[FetchAllPullRequestsJob] Updating PR ##{pr_number} to '#{new_state}'"
+            pr_record.update!(state: new_state)
+          end
+        rescue Octokit::NotFound
+          pr_record = scope.find_by(number: pr_number)
+          pr_record&.destroy
+        rescue => e
+          Rails.logger.error "[FetchAllPullRequestsJob] Error updating PR ##{pr_number}: #{e.message}"
+        end
+        sleep 0.2
+      end
+    end
+  end
 
   def verify_prs_needing_review(github_service, repository_name, repository_owner)
     Rails.logger.info "[FetchAllPullRequestsJob] Verifying PRs Needing Team Review for API lag..."

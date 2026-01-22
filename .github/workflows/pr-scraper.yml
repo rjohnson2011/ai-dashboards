@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Scrape vets-api (main repo)
+      - name: Scrape vets-api (main repo) - LITE MODE for 512MB memory limit
         run: |
-          echo "Scraping vets-api at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
-          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs" \
+          echo "Scraping vets-api in LITE MODE at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs&lite_mode=true" \
             -H "Content-Type: application/json" \
             --max-time 840)
           http_code=$(echo "$response" | tail -n1)

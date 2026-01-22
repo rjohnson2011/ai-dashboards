@@ -365,8 +365,9 @@ module Api
 
         repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
         repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+        lite_mode = params[:lite_mode] == "true"
 
-        Rails.logger.info "[AdminController] Manual scraper run initiated for #{repo_owner}/#{repo_name}"
+        Rails.logger.info "[AdminController] Manual scraper run initiated for #{repo_owner}/#{repo_name} (lite_mode: #{lite_mode})"
 
         # Run synchronously - the :async adapter loses jobs on server restart/sleep
         # GHA triggers this every 15 min so it's better to run inline
@@ -374,7 +375,8 @@ module Api
         begin
           FetchAllPullRequestsJob.perform_now(
             repository_name: repo_name,
-            repository_owner: repo_owner
+            repository_owner: repo_owner,
+            lite_mode: lite_mode
           )
 
           render json: {

@@ -3,6 +3,10 @@
 # Runs in GitHub Actions to verify CI status matches what's shown on GitHub UI
 # This provides cross-verification between our API-based data and the actual rendered UI
 
+# Force unbuffered output for GHA logs
+$stdout.sync = true
+$stderr.sync = true
+
 require "selenium-webdriver"
 require "nokogiri"
 require "httparty"
@@ -300,4 +304,10 @@ class SeleniumCiVerifier
 end
 
 # Run verification
-exit SeleniumCiVerifier.new.run(sample_size: 10)
+begin
+  exit SeleniumCiVerifier.new.run(sample_size: 10)
+rescue => e
+  puts "FATAL ERROR: #{e.message}"
+  puts e.backtrace.first(10).join("\n")
+  exit 1
+end

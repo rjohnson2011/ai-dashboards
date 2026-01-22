@@ -31,11 +31,14 @@ class SeleniumCiVerifier
     puts "Found #{prs.length} open PRs in our database"
 
     # Sample PRs to verify (prioritize those with failures)
+    puts "Selecting PRs to verify..."
     prs_to_verify = select_prs_to_verify(prs, sample_size)
     puts "Verifying #{prs_to_verify.length} PRs..."
 
     # Set up Selenium
+    puts "Setting up Selenium driver..."
     driver = setup_driver
+    puts "Selenium driver ready!"
 
     begin
       prs_to_verify.each_with_index do |pr, index|
@@ -120,14 +123,20 @@ class SeleniumCiVerifier
 
   def setup_driver
     options = Selenium::WebDriver::Chrome::Options.new
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--remote-debugging-port=9222")
     options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 
+    # For GHA, selenium-webdriver should auto-detect chromedriver
     Selenium::WebDriver.for :chrome, options: options
+  rescue => e
+    puts "Error setting up Selenium driver: #{e.message}"
+    puts e.backtrace.first(5).join("\n")
+    raise
   end
 
   def verify_pr(driver, pr)

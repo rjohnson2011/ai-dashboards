@@ -13,19 +13,61 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Scrape vets-api (main repo) - LITE MODE for 512MB memory limit
+      # Step 1: Fetch basic PR info (low memory)
+      - name: Step 1/3 - Fetch PR info (lite mode)
         run: |
-          echo "Scraping vets-api in LITE MODE at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
+          echo "Step 1/3: Fetching basic PR info at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
           response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs&lite_mode=true" \
             -H "Content-Type: application/json" \
-            --max-time 840)
+            --max-time 300)
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response: $body"
           echo "HTTP Status: $http_code"
           if [ "$http_code" -ge 400 ]; then
-            echo "Error: Request failed with status $http_code"
+            echo "Error: Step 1 failed with status $http_code"
             exit 1
+          fi
+          echo "Step 1/3 completed successfully"
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      # Step 2: Fetch reviews (medium memory)
+      - name: Step 2/3 - Fetch reviews
+        run: |
+          echo "Step 2/3: Fetching reviews at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/fetch_reviews?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs" \
+            -H "Content-Type: application/json" \
+            --max-time 300)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response: $body"
+          echo "HTTP Status: $http_code"
+          if [ "$http_code" -ge 400 ]; then
+            echo "Warning: Step 2 failed with status $http_code (continuing anyway)"
+          else
+            echo "Step 2/3 completed successfully"
+          fi
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      # Step 3: Fetch CI checks (medium memory)
+      - name: Step 3/3 - Fetch CI checks
+        run: |
+          echo "Step 3/3: Fetching CI checks at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/fetch_ci_checks?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs" \
+            -H "Content-Type: application/json" \
+            --max-time 300)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response: $body"
+          echo "HTTP Status: $http_code"
+          if [ "$http_code" -ge 400 ]; then
+            echo "Warning: Step 3 failed with status $http_code (continuing anyway)"
+          else
+            echo "Step 3/3 completed successfully"
           fi
         env:
           API_URL: ${{ secrets.API_URL }}

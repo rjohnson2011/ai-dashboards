@@ -531,6 +531,70 @@ module Api
         }
       end
 
+      def fetch_reviews
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        Rails.logger.info "[AdminController] Fetch reviews initiated for #{repo_owner}/#{repo_name}"
+
+        started_at = Time.current
+        begin
+          result = FetchReviewsJob.perform_now(
+            repository_name: repo_name,
+            repository_owner: repo_owner
+          )
+
+          render json: {
+            success: true,
+            message: "Reviews fetch completed",
+            repository: "#{repo_owner}/#{repo_name}",
+            updated: result[:updated],
+            errors: result[:errors],
+            duration_seconds: (Time.current - started_at).round(2)
+          }
+        rescue => e
+          Rails.logger.error "[AdminController] Reviews fetch failed: #{e.message}"
+          render json: { success: false, message: e.message }, status: :internal_server_error
+        end
+      end
+
+      def fetch_ci_checks
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        Rails.logger.info "[AdminController] Fetch CI checks initiated for #{repo_owner}/#{repo_name}"
+
+        started_at = Time.current
+        begin
+          result = FetchCiChecksJob.perform_now(
+            repository_name: repo_name,
+            repository_owner: repo_owner
+          )
+
+          render json: {
+            success: true,
+            message: "CI checks fetch completed",
+            repository: "#{repo_owner}/#{repo_name}",
+            updated: result[:updated],
+            errors: result[:errors],
+            duration_seconds: (Time.current - started_at).round(2)
+          }
+        rescue => e
+          Rails.logger.error "[AdminController] CI checks fetch failed: #{e.message}"
+          render json: { success: false, message: e.message }, status: :internal_server_error
+        end
+      end
+
       def verify_pr_accuracy
         unless params[:token] == ENV["ADMIN_TOKEN"]
           render json: { error: "Unauthorized" }, status: :unauthorized

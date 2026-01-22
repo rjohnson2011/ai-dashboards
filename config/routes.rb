@@ -33,6 +33,8 @@ Rails.application.routes.draw do
       get "admin/debug_pr", to: "admin#debug_pr"
       post "admin/fix_all_pr_statuses", to: "admin#fix_all_pr_statuses"
       post "admin/verify_pr_accuracy", to: "admin#verify_pr_accuracy"
+      post "admin/fetch_reviews", to: "admin#fetch_reviews"
+      post "admin/fetch_ci_checks", to: "admin#fetch_ci_checks"
       get "health", to: "admin#health"
 
       # GitHub webhook endpoint

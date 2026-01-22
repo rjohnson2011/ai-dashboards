@@ -25,8 +25,12 @@ class FetchAllPullRequestsJob < ApplicationJob
     shared_github_service = GithubService.new(owner: repository_owner, repo: repository_name)
     shared_hybrid_service = HybridPrCheckerService.new(owner: repository_owner, repo: repository_name)
 
-    # Process PRs in smaller batches to avoid memory spikes (reduced to 3 for 512MB limit)
-    master_prs.each_slice(3) do |batch|
+    # Clear the open_prs array to free memory - we only need master_prs from here
+    open_prs = nil
+    GC.start
+
+    # Process PRs in smaller batches to avoid memory spikes (reduced to 2 for 512MB limit)
+    master_prs.each_slice(2) do |batch|
       batch.each do |pr_data|
         # Find by github_id to avoid duplicate key violations
         pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
@@ -229,29 +233,31 @@ class FetchAllPullRequestsJob < ApplicationJob
   end
 
   def fetch_pr_checks_inline(pr, github_service, hybrid_service)
-    # Fetch fresh reviews from GitHub on every PR update
-    # This ensures we capture review state changes (e.g., changes_requested -> approved)
-    begin
-      reviews = github_service.pull_request_reviews(pr.number)
+    # Skip fetching reviews if PR is already backend-approved (saves API calls & memory)
+    # We'll still check during deep verification
+    unless pr.backend_approval_status == "approved"
+      begin
+        reviews = github_service.pull_request_reviews(pr.number)
 
-      # Only update if we got reviews back
-      if reviews.any?
-        pr.pull_request_reviews.destroy_all
-        reviews.each do |review_data|
-          PullRequestReview.create!(
-            pull_request_id: pr.id,
-            github_id: review_data.id,
-            user: review_data.user.login,
-            state: review_data.state,
-            submitted_at: review_data.submitted_at
-          )
+        # Only update if we got reviews back
+        if reviews.any?
+          pr.pull_request_reviews.destroy_all
+          reviews.each do |review_data|
+            PullRequestReview.create!(
+              pull_request_id: pr.id,
+              github_id: review_data.id,
+              user: review_data.user.login,
+              state: review_data.state,
+              submitted_at: review_data.submitted_at
+            )
+          end
+
+          # Update approval statuses after fetching reviews
+          pr.update_backend_approval_status!
         end
-
-        # Update approval statuses after fetching reviews
-        pr.update_backend_approval_status!
+      rescue => e
+        Rails.logger.error "[FetchAllPullRequestsJob] Error fetching reviews for PR ##{pr.number}: #{e.message}"
       end
-    rescue => e
-      Rails.logger.error "[FetchAllPullRequestsJob] Error fetching reviews for PR ##{pr.number}: #{e.message}"
     end
 
     # Use shared HybridPrCheckerService for faster API-based check fetching
@@ -274,24 +280,29 @@ class FetchAllPullRequestsJob < ApplicationJob
       Rails.cache.delete("pr_#{pr.id}_failing_checks")
     end
 
-    # Use upsert for check runs to avoid destroy_all + create! which is slow
-    # Only store checks if there are failures or if this is first time seeing them
-    if result[:checks].any? && (result[:failed_checks] > 0 || pr.check_runs.empty?)
+    # SKIP storing check_runs during scraping to reduce memory usage
+    # The counts are stored on the PR record, detailed checks can be fetched on-demand
+    # Only store if there are actual failures that need investigation
+    if result[:failed_checks] > 0 && result[:checks].any?
       pr.check_runs.destroy_all
-      check_runs_data = result[:checks].map do |check|
-        {
-          name: check[:name],
-          status: check[:status] || "unknown",
-          url: check[:url],
-          description: check[:description],
-          required: check[:required] || false,
-          suite_name: check[:suite_name],
-          pull_request_id: pr.id,
-          created_at: Time.current,
-          updated_at: Time.current
-        }
-      end
-      CheckRun.insert_all(check_runs_data) if check_runs_data.any?
+      # Only store failed checks, not all checks
+      failed_checks_data = result[:checks]
+        .select { |c| %w[failure error cancelled].include?(c[:status]) }
+        .first(10) # Limit to 10 to save memory
+        .map do |check|
+          {
+            name: check[:name],
+            status: check[:status] || "unknown",
+            url: check[:url],
+            description: check[:description],
+            required: check[:required] || false,
+            suite_name: check[:suite_name],
+            pull_request_id: pr.id,
+            created_at: Time.current,
+            updated_at: Time.current
+          }
+        end
+      CheckRun.insert_all(failed_checks_data) if failed_checks_data.any?
     end
 
     # SKIP commits check during scraping to reduce memory usage

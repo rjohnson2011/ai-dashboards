@@ -1,0 +1,43 @@
+name: Verify CI Status (Selenium)
+
+on:
+  schedule:
+    # Run hourly during business hours (Mon-Fri, 6am-6pm PT)
+    - cron: '0 13-23,0-1 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@v2
+
+      - name: Run Selenium CI Verification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_OWNER: department-of-veterans-affairs
+          GITHUB_REPO: vets-api
+          API_URL: ${{ secrets.API_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          # Install minimal dependencies for the verification script
+          gem install selenium-webdriver nokogiri httparty
+
+          # Run the verification script
+          ruby scripts/verify_ci_with_selenium.rb

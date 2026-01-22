@@ -59,13 +59,29 @@ class SeleniumCiVerifier
   private
 
   def fetch_prs_from_api
+    # Wake up the server first (Render free tier sleeps after inactivity)
+    puts "Waking up API server..."
+    3.times do |attempt|
+      begin
+        wake_response = HTTParty.get("#{@api_url}/api/v1/health", timeout: 30)
+        if wake_response.success?
+          puts "Server is awake!"
+          break
+        end
+      rescue => e
+        puts "Wake attempt #{attempt + 1} failed: #{e.message}"
+        sleep 5
+      end
+    end
+
+    # Now fetch PRs
     response = HTTParty.get(
       "#{@api_url}/api/v1/reviews",
       query: {
         repository_name: @github_repo,
         repository_owner: @github_owner
       },
-      timeout: 60
+      timeout: 120
     )
 
     if response.success?

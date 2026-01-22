@@ -18,7 +18,7 @@ jobs:
           echo "Scraping vets-api at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
           response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=vets-api&repository_owner=department-of-veterans-affairs" \
             -H "Content-Type: application/json" \
-            --max-time 600)
+            --max-time 840)
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response: $body"

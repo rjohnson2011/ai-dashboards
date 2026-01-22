@@ -1,10 +1,13 @@
 name: Verify CI Status (Selenium)
 
+# DISABLED: Selenium scraper incorrectly counts merge status indicators as CI failures
+# The API-based VerifyPrAccuracyJob is more accurate for CI status
+# TODO: Refactor to only check review-related discrepancies (stale approvals after new commits)
 on:
-  schedule:
-    # Run hourly during business hours (Mon-Fri, 6am-6pm PT)
-    - cron: '0 13-23,0-1 * * 1-5'
-  workflow_dispatch: # Allow manual trigger
+  # schedule:
+  #   # Run hourly during business hours (Mon-Fri, 6am-6pm PT)
+  #   - cron: '0 13-23,0-1 * * 1-5'
+  workflow_dispatch: # Allow manual trigger only
 
 jobs:
   verify:

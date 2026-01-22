@@ -103,6 +103,34 @@ class VerifyPrAccuracyJob < ApplicationJob
       issues << "Backend approval status mismatch: stored=#{pr.backend_approval_status}, expected=#{expected_backend_status}"
     end
 
+    # === VERIFY STALE APPROVAL (commits after backend approval) ===
+    # This catches the case where backend approved but author pushed new commits
+    if pr.backend_approval_status == "approved"
+      begin
+        # Get the last backend approval timestamp
+        last_backend_approval = latest_actionable_reviews
+          .select { |r| r.state == "APPROVED" && backend_members.include?(r.user.login) }
+          .max_by(&:submitted_at)
+
+        if last_backend_approval
+          # Fetch commits from GitHub
+          commits = github_service.pull_request_commits(pr.number)
+
+          # Check if any commits happened after the backend approval
+          commits_after_approval = commits.select do |commit|
+            commit_date = commit.commit.author.date rescue nil
+            commit_date && commit_date > last_backend_approval.submitted_at
+          end
+
+          if commits_after_approval.any?
+            issues << "STALE APPROVAL: Backend approved by #{last_backend_approval.user.login} at #{last_backend_approval.submitted_at}, but #{commits_after_approval.count} commit(s) pushed after"
+          end
+        end
+      rescue => e
+        Rails.logger.warn "[VerifyPrAccuracyJob] Could not verify commits after approval for PR ##{pr.number}: #{e.message}"
+      end
+    end
+
     # === VERIFY CI STATUS ===
     begin
       ci_result = hybrid_checker.get_accurate_pr_checks(pr)

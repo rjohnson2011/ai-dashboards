@@ -18,7 +18,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
+          bundler-cache: false
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@latest
@@ -37,7 +37,11 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
           # Install minimal dependencies for the verification script
-          gem install selenium-webdriver nokogiri httparty
+          gem install selenium-webdriver nokogiri httparty --no-document
+
+          # Start ChromeDriver
+          chromedriver --port=4444 &
+          sleep 2
 
           # Run the verification script
           ruby scripts/verify_ci_with_selenium.rb

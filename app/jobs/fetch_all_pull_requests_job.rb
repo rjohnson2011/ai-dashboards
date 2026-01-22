@@ -21,8 +21,12 @@ class FetchAllPullRequestsJob < ApplicationJob
     master_prs = open_prs.select { |pr| pr.base.ref == "master" }
     Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
 
-    # Process PRs in smaller batches to avoid memory spikes
-    master_prs.each_slice(5) do |batch|
+    # Create services once and reuse to avoid memory allocation per PR
+    shared_github_service = GithubService.new(owner: repository_owner, repo: repository_name)
+    shared_hybrid_service = HybridPrCheckerService.new(owner: repository_owner, repo: repository_name)
+
+    # Process PRs in smaller batches to avoid memory spikes (reduced to 3 for 512MB limit)
+    master_prs.each_slice(3) do |batch|
       batch.each do |pr_data|
         # Find by github_id to avoid duplicate key violations
         pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
@@ -61,7 +65,7 @@ class FetchAllPullRequestsJob < ApplicationJob
         # Only fetch checks if PR changed (new commits) - saves memory & API calls
         # This is the most memory-intensive operation
         if pr_changed
-          fetch_pr_checks_inline(pr)
+          fetch_pr_checks_inline(pr, shared_github_service, shared_hybrid_service)
         end
       end
 
@@ -224,12 +228,7 @@ class FetchAllPullRequestsJob < ApplicationJob
     Rails.logger.error "[FetchAllPullRequestsJob] HTML scraping error: #{e.message}"
   end
 
-  def fetch_pr_checks_inline(pr)
-    github_service = GithubService.new(
-      owner: pr.repository_owner || ENV["GITHUB_OWNER"],
-      repo: pr.repository_name || ENV["GITHUB_REPO"]
-    )
-
+  def fetch_pr_checks_inline(pr, github_service, hybrid_service)
     # Fetch fresh reviews from GitHub on every PR update
     # This ensures we capture review state changes (e.g., changes_requested -> approved)
     begin
@@ -255,12 +254,7 @@ class FetchAllPullRequestsJob < ApplicationJob
       Rails.logger.error "[FetchAllPullRequestsJob] Error fetching reviews for PR ##{pr.number}: #{e.message}"
     end
 
-    # Use HybridPrCheckerService for faster API-based check fetching
-    # Pass the PR's repository info to avoid "/" invalid repo errors
-    hybrid_service = HybridPrCheckerService.new(
-      owner: pr.repository_owner || ENV["GITHUB_OWNER"],
-      repo: pr.repository_name || ENV["GITHUB_REPO"]
-    )
+    # Use shared HybridPrCheckerService for faster API-based check fetching
     result = hybrid_service.get_accurate_pr_checks(pr)
 
     # Update PR with check counts
@@ -300,17 +294,8 @@ class FetchAllPullRequestsJob < ApplicationJob
       CheckRun.insert_all(check_runs_data) if check_runs_data.any?
     end
 
-    # Check for commits after backend approval
-    # This pre-populates the cache so the frontend doesn't need to make API calls
-    if pr.backend_approval_status == "approved"
-      begin
-        # This will check and cache the result
-        pr.has_commits_after_backend_approval?
-        Rails.logger.info "[FetchAllPullRequestsJob] Checked commits after approval for PR ##{pr.number}"
-      rescue => e
-        Rails.logger.error "[FetchAllPullRequestsJob] Error checking commits after approval for PR ##{pr.number}: #{e.message}"
-      end
-    end
+    # SKIP commits check during scraping to reduce memory usage
+    # The check will run lazily in changes_requested_info when needed by frontend
 
     # Update ready for backend review status
     pr.update_ready_for_backend_review!

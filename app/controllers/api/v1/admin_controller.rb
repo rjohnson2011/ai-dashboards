@@ -612,11 +612,15 @@ module Api
           pr_count = PullRequest.where(repository_name: repo_name).count
 
           if pr_count == 0
+            # Still clear cache in case PRs were deleted but cache wasn't invalidated
+            clear_reviews_cache
+
             render json: {
               success: true,
               message: "No PRs found for #{repo_name}",
               repository_name: repo_name,
-              deleted_count: 0
+              deleted_count: 0,
+              cache_cleared: true
             }
             return
           end
@@ -640,9 +644,7 @@ module Api
           PullRequest.where(id: pr_ids).delete_all
 
           # Clear all reviews_index caches to reflect the deletion
-          Rails.cache.delete_matched("reviews_index:*")
-          # Update the last_scrape timestamp for the main repo to invalidate any remaining caches
-          Rails.cache.write("last_scrape:department-of-veterans-affairs:vets-api", Time.current.to_i)
+          clear_reviews_cache
 
           render json: {
             success: true,
@@ -808,6 +810,19 @@ module Api
         end
 
         render json: debug_info
+      end
+
+      def clear_reviews_cache
+        # Try delete_matched first (works with Redis, MemCacheStore)
+        begin
+          Rails.cache.delete_matched("reviews_index:*")
+        rescue NotImplementedError, NoMethodError
+          # Memory store and file store don't support delete_matched
+          # Clear the known cache keys directly
+          Rails.cache.clear
+        end
+        # Update the last_scrape timestamp to invalidate any remaining caches
+        Rails.cache.write("last_scrape:department-of-veterans-affairs:vets-api", Time.current.to_i)
       end
     end
   end

@@ -639,6 +639,11 @@ module Api
           # Now delete the PRs themselves
           PullRequest.where(id: pr_ids).delete_all
 
+          # Clear all reviews_index caches to reflect the deletion
+          Rails.cache.delete_matched("reviews_index:*")
+          # Update the last_scrape timestamp for the main repo to invalidate any remaining caches
+          Rails.cache.write("last_scrape:department-of-veterans-affairs:vets-api", Time.current.to_i)
+
           render json: {
             success: true,
             message: "Removed #{pr_count} PRs from #{repo_name}",
@@ -646,7 +651,8 @@ module Api
             deleted_count: pr_count,
             checks_deleted: checks_deleted,
             reviews_deleted: reviews_deleted,
-            comments_deleted: comments_deleted
+            comments_deleted: comments_deleted,
+            cache_cleared: true
           }
         rescue StandardError => e
           render json: {

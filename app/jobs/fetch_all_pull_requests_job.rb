@@ -275,6 +275,7 @@ class FetchAllPullRequestsJob < ApplicationJob
         pr.update_backend_approval_status!
         pr.update_ready_for_backend_review!
         pr.update_approval_status!
+        pr.update_awaiting_author_changes!
 
         # Log if status changed
         if pr.backend_approval_status != old_status
@@ -331,6 +332,7 @@ class FetchAllPullRequestsJob < ApplicationJob
 
           # Update approval statuses after fetching reviews
           pr.update_backend_approval_status!
+          pr.update_awaiting_author_changes!
         end
       rescue => e
         Rails.logger.error "[FetchAllPullRequestsJob] Error fetching reviews for PR ##{pr.number}: #{e.message}"

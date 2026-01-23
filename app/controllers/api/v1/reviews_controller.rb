@@ -159,6 +159,7 @@ class Api::V1::ReviewsController < ApplicationController
           backend_approval_status: pr.backend_approval_status,
           approval_summary: pr.approval_summary,
           ready_for_backend_review: pr.ready_for_backend_review,
+          awaiting_author_changes: pr.awaiting_author_changes,
           recent_timeline: timeline_data,
           labels: pr.labels || [],
           repository_name: pr.repository_name,

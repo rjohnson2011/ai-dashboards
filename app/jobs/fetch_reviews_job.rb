@@ -56,6 +56,7 @@ class FetchReviewsJob < ApplicationJob
           pr.update_backend_approval_status!
           pr.update_ready_for_backend_review!
           pr.update_approval_status!
+          pr.update_awaiting_author_changes!
 
           if pr.backend_approval_status != old_status
             updated_count += 1

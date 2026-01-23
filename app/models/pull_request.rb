@@ -226,6 +226,56 @@ class PullRequest < ApplicationRecord
     end
   end
 
+  def calculate_awaiting_author_changes
+    # PR is awaiting author changes if:
+    # 1. Someone has requested changes (CHANGES_REQUESTED state)
+    # 2. AND the author hasn't pushed new commits since that review
+    #
+    # Once author pushes new commits, it goes back to "ready for review"
+
+    # Get the latest CHANGES_REQUESTED review
+    latest_changes_requested = pull_request_reviews
+      .where(state: PullRequestReview::CHANGES_REQUESTED)
+      .order(submitted_at: :desc)
+      .first
+
+    return false unless latest_changes_requested
+
+    # Check if the reviewer who requested changes has since approved
+    later_approval_from_same_user = pull_request_reviews
+      .where(user: latest_changes_requested.user)
+      .where(state: PullRequestReview::APPROVED)
+      .where("submitted_at > ?", latest_changes_requested.submitted_at)
+      .exists?
+
+    return false if later_approval_from_same_user
+
+    # Check if pr_updated_at is after the changes_requested review
+    # This indicates the author has made updates (pushed commits, responded, etc.)
+    if pr_updated_at && pr_updated_at > latest_changes_requested.submitted_at
+      # PR was updated after changes were requested
+      # Check if head_sha changed (indicates new commits)
+      # We'll use pr_updated_at as a proxy - if it's significantly later, assume author responded
+      time_since_review = pr_updated_at - latest_changes_requested.submitted_at
+
+      # If more than 5 minutes passed and PR was updated, author likely responded
+      # This is a heuristic - ideally we'd check commit timestamps
+      return false if time_since_review > 5.minutes
+    end
+
+    # Still awaiting author changes
+    true
+  end
+
+  def update_awaiting_author_changes!
+    new_status = calculate_awaiting_author_changes
+    if awaiting_author_changes != new_status
+      self.awaiting_author_changes = new_status
+      save!
+      Rails.logger.info "[PullRequest] PR ##{number} awaiting_author_changes: #{new_status}"
+    end
+  end
+
   def has_commits_after_backend_approval?
     # Check if PR has backend approval
     return false unless backend_approval_status == "approved"

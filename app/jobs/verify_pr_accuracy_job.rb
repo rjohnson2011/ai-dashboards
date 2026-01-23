@@ -235,6 +235,7 @@ class VerifyPrAccuracyJob < ApplicationJob
     pr.update_backend_approval_status!
     pr.update_ready_for_backend_review!
     pr.update_approval_status!
+    pr.update_awaiting_author_changes!
 
     Rails.logger.info "[VerifyPrAccuracyJob] Fixed PR ##{pr.number}: backend_status=#{pr.backend_approval_status}, ci_status=#{pr.ci_status}"
   end

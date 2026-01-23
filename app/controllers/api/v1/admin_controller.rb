@@ -595,6 +595,37 @@ module Api
         end
       end
 
+      def remove_repository_prs
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repo_name = params[:repository_name]
+        unless repo_name.present?
+          render json: { error: "repository_name is required" }, status: :bad_request
+          return
+        end
+
+        # Count before deletion
+        pr_count = PullRequest.where(repository_name: repo_name).count
+
+        # Delete associated records first (foreign key constraints)
+        PullRequest.where(repository_name: repo_name).find_each do |pr|
+          pr.check_runs.destroy_all
+          pr.pull_request_reviews.destroy_all
+          pr.pull_request_comments.destroy_all
+          pr.destroy
+        end
+
+        render json: {
+          success: true,
+          message: "Removed #{pr_count} PRs from #{repo_name}",
+          repository_name: repo_name,
+          deleted_count: pr_count
+        }
+      end
+
       def verify_pr_accuracy
         unless params[:token] == ENV["ADMIN_TOKEN"]
           render json: { error: "Unauthorized" }, status: :unauthorized

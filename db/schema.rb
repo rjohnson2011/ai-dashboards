@@ -10,9 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_12_02_170402) do
+ActiveRecord::Schema[8.0].define(version: 2026_01_23_162150) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "backend_monthly_reviews", force: :cascade do |t|
+    t.date "month", null: false
+    t.string "repository_name", null: false
+    t.string "repository_owner", null: false
+    t.integer "total_approvals", default: 0
+    t.jsonb "pr_data", default: []
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["repository_owner", "month"], name: "index_backend_monthly_reviews_on_repository_owner_and_month"
+    t.index ["repository_owner", "repository_name", "month"], name: "index_backend_monthly_reviews_unique", unique: true
+  end
 
   create_table "backend_review_group_members", force: :cascade do |t|
     t.string "username"
@@ -128,10 +140,12 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_02_170402) do
     t.string "repository_name"
     t.string "repository_owner"
     t.jsonb "labels", default: []
+    t.datetime "ready_for_backend_review_at"
     t.index ["backend_approval_status"], name: "index_pull_requests_on_backend_approval_status"
     t.index ["github_id"], name: "index_pull_requests_on_github_id", unique: true
     t.index ["head_sha"], name: "index_pull_requests_on_head_sha"
     t.index ["labels"], name: "index_pull_requests_on_labels", using: :gin
+    t.index ["ready_for_backend_review_at"], name: "index_pull_requests_on_ready_for_backend_review_at"
     t.index ["repository_name"], name: "index_pull_requests_on_repository_name"
     t.index ["repository_owner", "repository_name"], name: "index_pull_requests_on_repository_owner_and_repository_name"
   end

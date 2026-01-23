@@ -43,6 +43,7 @@ Rails.application.routes.draw do
       # Sprint metrics endpoints
       get "sprint_metrics", to: "sprint_metrics#index"
       get "sprint_metrics/detailed", to: "sprint_metrics#detailed"
+      get "sprint_metrics/review_turnaround", to: "sprint_metrics#review_turnaround"
       get "sprint_metrics/support_rotations", to: "sprint_metrics#support_rotations"
       post "sprint_metrics/support_rotations", to: "sprint_metrics#create_support_rotation"
     end

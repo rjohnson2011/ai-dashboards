@@ -168,7 +168,19 @@ class PullRequest < ApplicationRecord
   end
 
   def update_ready_for_backend_review!
-    self.ready_for_backend_review = calculate_ready_for_backend_review
+    new_ready_status = calculate_ready_for_backend_review
+
+    # Track when PR becomes ready for backend review (for turnaround metrics)
+    if new_ready_status && !ready_for_backend_review
+      # Just became ready - set the timestamp
+      self.ready_for_backend_review_at = Time.current
+      Rails.logger.info "[PullRequest] PR ##{number} is now ready for backend review"
+    elsif !new_ready_status && ready_for_backend_review
+      # No longer ready - clear the timestamp
+      self.ready_for_backend_review_at = nil
+    end
+
+    self.ready_for_backend_review = new_ready_status
     save!
   end
 

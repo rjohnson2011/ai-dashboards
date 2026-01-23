@@ -252,7 +252,212 @@ class Api::V1::SprintMetricsController < ApplicationController
     end
   end
 
+  # Review turnaround time metrics - time from "ready for backend review" to "backend approved"
+  def review_turnaround
+    repository_name = params[:repository_name] || ENV["GITHUB_REPO"]
+    repository_owner = params[:repository_owner] || ENV["GITHUB_OWNER"]
+    sprint_offset = (params[:sprint_offset] || 0).to_i
+
+    # Get current sprint (using same logic as index method)
+    current_sprint = get_sprint_by_offset(sprint_offset, repository_name, repository_owner)
+
+    unless current_sprint
+      render json: { error: "No sprint data found" }, status: :not_found
+      return
+    end
+
+    metrics = calculate_review_turnaround_metrics(
+      current_sprint.start_date,
+      current_sprint.end_date,
+      repository_name,
+      repository_owner
+    )
+
+    render json: {
+      sprint_info: {
+        sprint_number: current_sprint.sprint_number,
+        engineer_name: current_sprint.engineer_name,
+        start_date: current_sprint.start_date,
+        end_date: current_sprint.end_date
+      },
+      metrics: metrics
+    }
+  end
+
   private
+
+  def get_sprint_by_offset(sprint_offset, repository_name, repository_owner)
+    if sprint_offset == 0
+      SupportRotation.current_for_repository(repository_name, repository_owner) ||
+        SupportRotation.current_sprint
+    else
+      base_sprint = SupportRotation.current_for_repository(repository_name, repository_owner) ||
+                    SupportRotation.current_sprint
+
+      return nil unless base_sprint
+
+      if sprint_offset < 0
+        SupportRotation
+          .where(repository_name: repository_name, repository_owner: repository_owner)
+          .where("end_date < ?", base_sprint.start_date)
+          .order(end_date: :desc)
+          .offset(-sprint_offset - 1)
+          .first
+      else
+        SupportRotation
+          .where(repository_name: repository_name, repository_owner: repository_owner)
+          .where("start_date > ?", base_sprint.end_date)
+          .order(start_date: :asc)
+          .offset(sprint_offset - 1)
+          .first
+      end
+    end
+  end
+
+  def calculate_review_turnaround_metrics(start_date, end_date, repo_name, repo_owner)
+    backend_members = BackendReviewGroupMember.pluck(:username)
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
+    # Find PRs that received backend approval during this sprint
+    approved_prs = PullRequest
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
+      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
+             est_zone.parse(start_date.to_s).beginning_of_day.utc,
+             est_zone.parse(end_date.to_s).end_of_day.utc)
+      .distinct
+
+    turnaround_data = []
+
+    approved_prs.find_each do |pr|
+      # Get the first backend approval
+      first_backend_approval = pr.pull_request_reviews
+        .where(state: "APPROVED", user: backend_members)
+        .order(:submitted_at)
+        .first
+
+      next unless first_backend_approval
+
+      # Determine when PR became ready for backend review
+      # Priority: 1) ready_for_backend_review_at, 2) first non-backend approval, 3) pr_created_at
+      ready_at = pr.ready_for_backend_review_at
+
+      # If no timestamp, try to infer from first non-backend approval
+      if ready_at.nil?
+        first_non_backend_approval = pr.pull_request_reviews
+          .where(state: "APPROVED")
+          .where.not(user: backend_members)
+          .order(:submitted_at)
+          .first
+
+        ready_at = first_non_backend_approval&.submitted_at
+      end
+
+      # Fallback to PR creation time
+      ready_at ||= pr.pr_created_at
+
+      next unless ready_at
+
+      # Calculate turnaround time
+      turnaround_hours = ((first_backend_approval.submitted_at - ready_at) / 1.hour).round(2)
+
+      # Only include positive turnaround times (approval after ready)
+      next if turnaround_hours < 0
+
+      turnaround_data << {
+        pr_number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        url: pr.url,
+        ready_at: ready_at,
+        approved_at: first_backend_approval.submitted_at,
+        approved_by: first_backend_approval.user,
+        turnaround_hours: turnaround_hours,
+        turnaround_business_hours: calculate_business_hours(ready_at, first_backend_approval.submitted_at)
+      }
+    end
+
+    # Calculate statistics
+    hours = turnaround_data.map { |t| t[:turnaround_hours] }
+    business_hours = turnaround_data.map { |t| t[:turnaround_business_hours] }
+
+    {
+      total_prs_reviewed: turnaround_data.count,
+      average_turnaround_hours: hours.any? ? (hours.sum / hours.count).round(1) : 0,
+      median_turnaround_hours: hours.any? ? sorted_median(hours).round(1) : 0,
+      average_business_hours: business_hours.any? ? (business_hours.sum / business_hours.count).round(1) : 0,
+      median_business_hours: business_hours.any? ? sorted_median(business_hours).round(1) : 0,
+      min_turnaround_hours: hours.any? ? hours.min.round(1) : 0,
+      max_turnaround_hours: hours.any? ? hours.max.round(1) : 0,
+      distribution: calculate_turnaround_distribution(hours),
+      by_reviewer: calculate_turnaround_by_reviewer(turnaround_data),
+      recent_reviews: turnaround_data.sort_by { |t| -t[:approved_at].to_i }.first(20)
+    }
+  end
+
+  def calculate_business_hours(start_time, end_time)
+    # Calculate business hours (9am-5pm EST, Mon-Fri)
+    est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+    start_est = start_time.in_time_zone(est_zone)
+    end_est = end_time.in_time_zone(est_zone)
+
+    total_business_hours = 0.0
+    current = start_est
+
+    while current < end_est
+      # Check if this is a business day (Mon-Fri)
+      if (1..5).include?(current.wday)
+        # Business hours are 9am-5pm
+        day_start = current.change(hour: 9, min: 0)
+        day_end = current.change(hour: 17, min: 0)
+
+        # Calculate overlap with business hours for this day
+        effective_start = [ current, day_start ].max
+        effective_end = [ end_est, day_end, current.end_of_day ].min
+
+        if effective_start < effective_end && effective_start >= day_start && effective_end <= day_end
+          total_business_hours += (effective_end - effective_start) / 1.hour
+        end
+      end
+
+      # Move to next day at 9am
+      current = (current + 1.day).change(hour: 9, min: 0)
+    end
+
+    total_business_hours.round(1)
+  end
+
+  def sorted_median(array)
+    return 0 if array.empty?
+    sorted = array.sort
+    mid = sorted.length / 2
+    sorted.length.odd? ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0
+  end
+
+  def calculate_turnaround_distribution(hours)
+    return {} if hours.empty?
+
+    {
+      under_1h: hours.count { |h| h < 1 },
+      "1h_4h": hours.count { |h| h >= 1 && h < 4 },
+      "4h_8h": hours.count { |h| h >= 4 && h < 8 },
+      "8h_24h": hours.count { |h| h >= 8 && h < 24 },
+      "24h_48h": hours.count { |h| h >= 24 && h < 48 },
+      over_48h: hours.count { |h| h >= 48 }
+    }
+  end
+
+  def calculate_turnaround_by_reviewer(turnaround_data)
+    turnaround_data.group_by { |t| t[:approved_by] }.map do |reviewer, reviews|
+      hours = reviews.map { |r| r[:turnaround_hours] }
+      {
+        reviewer: reviewer,
+        review_count: reviews.count,
+        average_hours: (hours.sum / hours.count).round(1),
+        median_hours: sorted_median(hours).round(1)
+      }
+    end.sort_by { |r| -r[:review_count] }
+  end
 
   def calculate_daily_approvals(start_date, end_date, repo_name, repo_owner)
     # Get all approvals in the date range for backend team members

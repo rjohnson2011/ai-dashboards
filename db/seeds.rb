@@ -6,7 +6,7 @@
 repositories = [
   { owner: 'department-of-veterans-affairs', name: 'vets-api' },
   { owner: 'department-of-veterans-affairs', name: 'platform-atlas' },
-  { owner: 'department-of-veterans-affairs', name: 'vets-json-schema' },
+  # { owner: 'department-of-veterans-affairs', name: 'vets-json-schema' },  # Disabled for now
   { owner: 'department-of-veterans-affairs', name: 'vets-api-mockdata' }
 ]
 

@@ -1,14 +1,14 @@
 {
   "ignored_warnings": [
     {
-      "fingerprint": "b338c0a84869832117065d3a90ce9911e06bf1f3195bfdcd69d249b58fd1b4d2",
+      "fingerprint": "2f86fd88c602f610b464e2e9a81665e352b302a3f939fd00965570b5d84897e0",
       "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
     },
     {
-      "fingerprint": "39477d9518f63a61f07c515fed02f256e8b0b42b3212f6d596d8a59e1b242c04",
+      "fingerprint": "da4f8b4c07ac3eb01b2c0821d9391d03981ce8866ff76003b2cf8049e9f21a8c",
       "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
     }
   ],
-  "updated": "2026-01-20",
-  "brakeman_version": "7.1.1"
+  "updated": "2026-01-23",
+  "brakeman_version": "7.1.2"
 }

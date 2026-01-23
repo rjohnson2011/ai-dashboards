@@ -986,7 +986,7 @@ class Api::V1::SprintMetricsController < ApplicationController
 
       # Count ALL PRs reviewed by backend team in a given month (backend team performance metric)
       # Includes all PR states (open, closed, merged) to show full review workload
-      # Queries across all 4 repositories: vets-api, vets-json-schema, vets-api-mockdata, platform-atlas
+      # Queries across repositories: vets-api, vets-api-mockdata, platform-atlas (vets-json-schema disabled)
 
       # Build subquery to get first backend approval for each PR
       # This uses raw SQL since ActiveRecord can't handle DISTINCT ON with GROUP BY well
@@ -996,8 +996,9 @@ class Api::V1::SprintMetricsController < ApplicationController
       quoted_repo_owner = conn.quote(repo_owner)
       quoted_date = conn.quote(six_months_ago.iso8601)
 
-      # Query all 4 repositories
-      repositories = [ "vets-api", "vets-json-schema", "vets-api-mockdata", "platform-atlas" ]
+      # Query repositories (vets-json-schema disabled for now)
+      repositories = [ "vets-api", "vets-api-mockdata", "platform-atlas" ]
+      # repositories = [ "vets-api", "vets-json-schema", "vets-api-mockdata", "platform-atlas" ]  # Full list
       quoted_repos = repositories.map { |r| conn.quote(r) }.join(",")
 
       subquery = <<-SQL

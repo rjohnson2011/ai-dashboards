@@ -607,36 +607,48 @@ module Api
           return
         end
 
-        # Count before deletion
-        pr_count = PullRequest.where(repository_name: repo_name).count
+        begin
+          # Count before deletion
+          pr_count = PullRequest.where(repository_name: repo_name).count
 
-        if pr_count == 0
+          if pr_count == 0
+            render json: {
+              success: true,
+              message: "No PRs found for #{repo_name}",
+              repository_name: repo_name,
+              deleted_count: 0
+            }
+            return
+          end
+
+          # Get the PR IDs first
+          pr_ids = PullRequest.where(repository_name: repo_name).pluck(:id)
+
+          # Delete associated records first (foreign key constraints)
+          checks_deleted = CheckRun.where(pull_request_id: pr_ids).delete_all
+          reviews_deleted = PullRequestReview.where(pull_request_id: pr_ids).delete_all
+          comments_deleted = PullRequestComment.where(pull_request_id: pr_ids).delete_all
+
+          # Now delete the PRs themselves
+          PullRequest.where(id: pr_ids).delete_all
+
           render json: {
             success: true,
-            message: "No PRs found for #{repo_name}",
+            message: "Removed #{pr_count} PRs from #{repo_name}",
             repository_name: repo_name,
-            deleted_count: 0
+            deleted_count: pr_count,
+            checks_deleted: checks_deleted,
+            reviews_deleted: reviews_deleted,
+            comments_deleted: comments_deleted
           }
-          return
+        rescue StandardError => e
+          render json: {
+            success: false,
+            error: e.message,
+            error_class: e.class.name,
+            backtrace: e.backtrace&.first(5)
+          }, status: :internal_server_error
         end
-
-        # Get the PR IDs first
-        pr_ids = PullRequest.where(repository_name: repo_name).pluck(:id)
-
-        # Delete associated records first (foreign key constraints)
-        CheckRun.where(pull_request_id: pr_ids).delete_all
-        PullRequestReview.where(pull_request_id: pr_ids).delete_all
-        PullRequestComment.where(pull_request_id: pr_ids).delete_all
-
-        # Now delete the PRs themselves
-        PullRequest.where(id: pr_ids).delete_all
-
-        render json: {
-          success: true,
-          message: "Removed #{pr_count} PRs from #{repo_name}",
-          repository_name: repo_name,
-          deleted_count: pr_count
-        }
       end
 
       def verify_pr_accuracy

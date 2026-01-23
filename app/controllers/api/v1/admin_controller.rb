@@ -610,13 +610,35 @@ module Api
         # Count before deletion
         pr_count = PullRequest.where(repository_name: repo_name).count
 
+        # Use raw SQL for fast batch deletion (much faster than ActiveRecord destroy_all)
+        quoted_repo_name = ActiveRecord::Base.connection.quote(repo_name)
+
         # Delete associated records first (foreign key constraints)
-        PullRequest.where(repository_name: repo_name).find_each do |pr|
-          pr.check_runs.destroy_all
-          pr.pull_request_reviews.destroy_all
-          pr.pull_request_comments.destroy_all
-          pr.destroy
-        end
+        ActiveRecord::Base.connection.execute(<<-SQL)
+          DELETE FROM check_runs
+          WHERE pull_request_id IN (
+            SELECT id FROM pull_requests WHERE repository_name = #{quoted_repo_name}
+          )
+        SQL
+
+        ActiveRecord::Base.connection.execute(<<-SQL)
+          DELETE FROM pull_request_reviews
+          WHERE pull_request_id IN (
+            SELECT id FROM pull_requests WHERE repository_name = #{quoted_repo_name}
+          )
+        SQL
+
+        ActiveRecord::Base.connection.execute(<<-SQL)
+          DELETE FROM pull_request_comments
+          WHERE pull_request_id IN (
+            SELECT id FROM pull_requests WHERE repository_name = #{quoted_repo_name}
+          )
+        SQL
+
+        # Now delete the PRs themselves
+        ActiveRecord::Base.connection.execute(<<-SQL)
+          DELETE FROM pull_requests WHERE repository_name = #{quoted_repo_name}
+        SQL
 
         render json: {
           success: true,

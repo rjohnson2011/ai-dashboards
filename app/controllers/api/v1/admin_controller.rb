@@ -627,7 +627,14 @@ module Api
           # Delete associated records first (foreign key constraints)
           checks_deleted = CheckRun.where(pull_request_id: pr_ids).delete_all
           reviews_deleted = PullRequestReview.where(pull_request_id: pr_ids).delete_all
-          comments_deleted = PullRequestComment.where(pull_request_id: pr_ids).delete_all
+
+          # Try to delete comments if table exists (might not be migrated)
+          comments_deleted = 0
+          begin
+            comments_deleted = PullRequestComment.where(pull_request_id: pr_ids).delete_all
+          rescue ActiveRecord::StatementInvalid
+            # Table doesn't exist, skip
+          end
 
           # Now delete the PRs themselves
           PullRequest.where(id: pr_ids).delete_all

@@ -318,18 +318,51 @@ class Api::V1::SprintMetricsController < ApplicationController
     backend_members = BackendReviewGroupMember.pluck(:username)
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
+    sprint_start = est_zone.parse(start_date.to_s).beginning_of_day.utc
+    sprint_end = est_zone.parse(end_date.to_s).end_of_day.utc
+
     # Find PRs that received backend approval during this sprint
-    approved_prs = PullRequest
+    # First try: PRs with backend_approved_at timestamp in this sprint
+    approved_prs_with_timestamp = PullRequest
+      .where("backend_approved_at >= ? AND backend_approved_at <= ?", sprint_start, sprint_end)
+      .where.not(ready_for_backend_review_at: nil)
+
+    # Second try: PRs that have backend approval reviews in this sprint (for historical data)
+    approved_prs_from_reviews = PullRequest
       .joins(:pull_request_reviews)
       .where(pull_request_reviews: { state: "APPROVED", user: backend_members })
-      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
-             est_zone.parse(start_date.to_s).beginning_of_day.utc,
-             est_zone.parse(end_date.to_s).end_of_day.utc)
+      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?", sprint_start, sprint_end)
+      .where(backend_approved_at: nil) # Only ones without the new timestamp
       .distinct
 
     turnaround_data = []
 
-    approved_prs.find_each do |pr|
+    # Process PRs with proper timestamps first (most accurate)
+    approved_prs_with_timestamp.find_each do |pr|
+      turnaround_hours = pr.review_turnaround_hours
+      next unless turnaround_hours && turnaround_hours > 0
+
+      # Find who approved it
+      approver = pr.pull_request_reviews
+        .where(state: "APPROVED", user: backend_members)
+        .order(:submitted_at)
+        .first&.user || "Unknown"
+
+      turnaround_data << {
+        pr_number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        url: pr.url,
+        ready_at: pr.ready_for_backend_review_at,
+        approved_at: pr.backend_approved_at,
+        approved_by: approver,
+        turnaround_hours: turnaround_hours,
+        turnaround_business_hours: calculate_business_hours(pr.ready_for_backend_review_at, pr.backend_approved_at)
+      }
+    end
+
+    # Process historical PRs without the new timestamp (fallback)
+    approved_prs_from_reviews.find_each do |pr|
       # Get the first backend approval
       first_backend_approval = pr.pull_request_reviews
         .where(state: "APPROVED", user: backend_members)
@@ -338,8 +371,7 @@ class Api::V1::SprintMetricsController < ApplicationController
 
       next unless first_backend_approval
 
-      # Determine when PR became ready for backend review
-      # Priority: 1) ready_for_backend_review_at, 2) first non-backend approval, 3) pr_created_at
+      # Use ready_for_backend_review_at if available
       ready_at = pr.ready_for_backend_review_at
 
       # If no timestamp, try to infer from first non-backend approval
@@ -353,9 +385,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         ready_at = first_non_backend_approval&.submitted_at
       end
 
-      # Fallback to PR creation time
-      ready_at ||= pr.pr_created_at
-
+      # Skip if no ready_at - don't fallback to PR creation which skews data
       next unless ready_at
 
       # Calculate turnaround time

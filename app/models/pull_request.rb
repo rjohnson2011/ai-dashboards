@@ -110,7 +110,22 @@ class PullRequest < ApplicationRecord
   end
 
   def update_backend_approval_status!
-    self.backend_approval_status = calculate_backend_approval_status
+    old_status = backend_approval_status
+    new_status = calculate_backend_approval_status
+
+    self.backend_approval_status = new_status
+
+    # Track when backend approval first happens (for turnaround metrics)
+    if new_status == "approved" && old_status != "approved"
+      # Just became backend approved - set the timestamp
+      self.backend_approved_at = Time.current
+      Rails.logger.info "[PullRequest] PR ##{number} received backend approval"
+    elsif new_status != "approved" && old_status == "approved"
+      # Lost backend approval (e.g., new commits invalidated it) - clear timestamp
+      self.backend_approved_at = nil
+      Rails.logger.info "[PullRequest] PR ##{number} lost backend approval"
+    end
+
     save!
   end
 
@@ -182,6 +197,21 @@ class PullRequest < ApplicationRecord
 
     self.ready_for_backend_review = new_ready_status
     save!
+  end
+
+  def review_turnaround_seconds
+    # Calculate time from ready_for_backend_review_at to backend_approved_at
+    return nil unless ready_for_backend_review_at && backend_approved_at
+    return nil if backend_approved_at < ready_for_backend_review_at
+
+    (backend_approved_at - ready_for_backend_review_at).to_i
+  end
+
+  def review_turnaround_hours
+    seconds = review_turnaround_seconds
+    return nil unless seconds
+
+    (seconds / 3600.0).round(1)
   end
 
   def fully_approved?

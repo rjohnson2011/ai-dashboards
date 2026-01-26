@@ -36,6 +36,7 @@ Rails.application.routes.draw do
       post "admin/remove_repository_prs", to: "admin#remove_repository_prs"
       post "admin/fetch_reviews", to: "admin#fetch_reviews"
       post "admin/fetch_ci_checks", to: "admin#fetch_ci_checks"
+      post "admin/run_migrations", to: "admin#run_migrations"
       get "health", to: "admin#health"
 
       # GitHub webhook endpoint

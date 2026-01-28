@@ -662,8 +662,24 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     times = []
     prs.each do |pr|
-      # Find when it became ready for review (first non-draft state or first approval request)
-      ready_time = pr.pr_created_at
+      # Find when it became ready for backend review
+      # Priority: 1) ready_for_backend_review_at timestamp
+      #           2) First non-backend approval (team approved, so ready for backend)
+      #           3) Fall back to PR creation as last resort
+      ready_time = pr.ready_for_backend_review_at
+
+      # If no ready_for_backend_review_at, try to infer from first non-backend approval
+      unless ready_time
+        first_team_approval = pr.pull_request_reviews
+          .where(state: "APPROVED")
+          .where.not(user: backend_members)
+          .order(:submitted_at)
+          .first
+        ready_time = first_team_approval&.submitted_at
+      end
+
+      # Last resort: use PR creation date (will be less accurate for old PRs)
+      ready_time ||= pr.pr_created_at
 
       # Find first backend approval
       first_approval = pr.pull_request_reviews
@@ -671,7 +687,7 @@ class Api::V1::SprintMetricsController < ApplicationController
         .order(:submitted_at)
         .first
 
-      if first_approval && ready_time
+      if first_approval && ready_time && first_approval.submitted_at > ready_time
         hours = ((first_approval.submitted_at - ready_time) / 1.hour).round(1)
         times << { pr_number: pr.number, hours: hours, days: (hours / 24.0).round(1) }
       end
@@ -690,21 +706,45 @@ class Api::V1::SprintMetricsController < ApplicationController
     backend_members = BackendReviewGroupMember.pluck(:username)
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
+    # Get PRs that received backend reviews during the sprint
     prs = PullRequest
-      .where("pr_created_at >= ? AND pr_created_at <= ?",
+      .joins(:pull_request_reviews)
+      .where(pull_request_reviews: { user: backend_members })
+      .where("pull_request_reviews.submitted_at >= ? AND pull_request_reviews.submitted_at <= ?",
              est_zone.parse(start_date.to_s).beginning_of_day.utc,
              est_zone.parse(end_date.to_s).end_of_day.utc)
+      .distinct
 
     times = []
     prs.each do |pr|
-      first_review = pr.pull_request_reviews
+      first_backend_review = pr.pull_request_reviews
         .where(user: backend_members)
         .order(:submitted_at)
         .first
 
-      if first_review
-        hours = ((first_review.submitted_at - pr.pr_created_at) / 1.hour).round(1)
-        times << { pr_number: pr.number, hours: hours, reviewer: first_review.user }
+      next unless first_backend_review
+
+      # Find when it became ready for backend review
+      # Priority: 1) ready_for_backend_review_at timestamp
+      #           2) First non-backend approval
+      #           3) PR creation as fallback
+      ready_time = pr.ready_for_backend_review_at
+
+      unless ready_time
+        first_team_approval = pr.pull_request_reviews
+          .where(state: "APPROVED")
+          .where.not(user: backend_members)
+          .order(:submitted_at)
+          .first
+        ready_time = first_team_approval&.submitted_at
+      end
+
+      ready_time ||= pr.pr_created_at
+
+      # Only count if the review came after it was ready
+      if first_backend_review.submitted_at > ready_time
+        hours = ((first_backend_review.submitted_at - ready_time) / 1.hour).round(1)
+        times << { pr_number: pr.number, hours: hours, reviewer: first_backend_review.user }
       end
     end
 
@@ -714,7 +754,7 @@ class Api::V1::SprintMetricsController < ApplicationController
       sample_size: times.count,
       fastest_reviewers: times.group_by { |t| t[:reviewer] }
         .transform_values { |v| (v.sum { |t| t[:hours] } / v.count).round(1) }
-        .sort_by { |k, v| v }
+        .sort_by { |_k, v| v }
         .first(5)
         .to_h
     }
@@ -889,15 +929,23 @@ class Api::V1::SprintMetricsController < ApplicationController
   end
 
   def calculate_queue_depth_over_time(start_date, end_date, repo_name, repo_owner)
-    backend_members = BackendReviewGroupMember.pluck(:username)
     est_zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
 
     daily_queue = (start_date..end_date).map do |date|
-      # Count PRs that were waiting for review on this date
+      date_end = est_zone.parse(date.to_s).end_of_day.utc
+
+      # Count PRs that were ready for backend review on this date but not yet approved
+      # A PR is "in queue" if:
+      # 1. It was created before or on this date
+      # 2. It was ready for backend review (has team approval or is from backend member)
+      # 3. It hadn't received backend approval yet
+
       waiting_count = PullRequest
         .where(state: "open")
-        .where("pr_created_at <= ?", est_zone.parse(date.to_s).end_of_day.utc)
-        .where(backend_approval_status: [ "pending", nil ])
+        .where("pr_created_at <= ?", date_end)
+        .where(ready_for_backend_review: true)
+        .where(backend_approval_status: [ "not_approved", nil ])
+        .where("backend_approved_at IS NULL OR backend_approved_at > ?", date_end)
         .count
 
       {

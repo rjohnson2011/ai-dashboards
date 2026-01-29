@@ -1,10 +1,10 @@
 class FetchReviewsJob < ApplicationJob
   queue_as :default
 
-  # Lightweight job that ONLY fetches reviews and updates approval status
+  # Lightweight job that fetches reviews AND comments, updates approval status
   # Designed to fit within 512MB memory limit
   def perform(repository_name: nil, repository_owner: nil)
-    Rails.logger.info "[FetchReviewsJob] Starting reviews fetch for #{repository_owner}/#{repository_name}"
+    Rails.logger.info "[FetchReviewsJob] Starting reviews/comments fetch for #{repository_owner}/#{repository_name}"
 
     github_service = GithubService.new(owner: repository_owner, repo: repository_name)
 
@@ -51,6 +51,9 @@ class FetchReviewsJob < ApplicationJob
             end
           end
 
+          # Fetch PR comments (issue comments) from GitHub
+          fetch_pr_comments(pr, github_service)
+
           # Update approval status
           old_status = pr.backend_approval_status
           pr.update_backend_approval_status!
@@ -78,5 +81,36 @@ class FetchReviewsJob < ApplicationJob
     Rails.logger.info "[FetchReviewsJob] Completed. Updated #{updated_count} PRs, #{errors.count} errors"
 
     { updated: updated_count, errors: errors.count }
+  end
+
+  private
+
+  def fetch_pr_comments(pr, github_service)
+    comments = github_service.pull_request_comments(pr.number)
+    return if comments.empty?
+
+    # Only keep the last 20 comments to save space
+    recent_comments = comments.last(20)
+
+    # Get existing comment IDs to avoid duplicates
+    existing_ids = pr.pull_request_comments.pluck(:github_id)
+
+    recent_comments.each do |comment|
+      next if existing_ids.include?(comment.id)
+
+      PullRequestComment.create!(
+        pull_request_id: pr.id,
+        github_id: comment.id,
+        user: comment.user.login,
+        body: comment.body&.truncate(500), # Limit body length
+        commented_at: comment.created_at
+      )
+    end
+
+    # Clean up old comments (keep only last 20)
+    comment_ids_to_keep = pr.pull_request_comments.order(commented_at: :desc).limit(20).pluck(:id)
+    pr.pull_request_comments.where.not(id: comment_ids_to_keep).destroy_all if comment_ids_to_keep.any?
+  rescue => e
+    Rails.logger.warn "[FetchReviewsJob] Failed to fetch comments for PR ##{pr.number}: #{e.message}"
   end
 end

@@ -164,7 +164,8 @@ class Api::V1::ReviewsController < ApplicationController
           labels: pr.labels || [],
           repository_name: pr.repository_name,
           repository_owner: pr.repository_owner,
-          changes_requested_info: pr.changes_requested_info
+          changes_requested_info: pr.changes_requested_info,
+          latest_reviewer_activity: pr.respond_to?(:latest_reviewer_activity) ? pr.latest_reviewer_activity : nil
         }
       end
 

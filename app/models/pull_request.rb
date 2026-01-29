@@ -449,6 +449,75 @@ class PullRequest < ApplicationRecord
     nil
   end
 
+  # Returns the latest reviewer activity (comment or review) from non-author users
+  # This shows teammate feedback like "riley commented at 3:45 PM"
+  def latest_reviewer_activity
+    backend_members = BackendReviewGroupMember.pluck(:username)
+
+    # Get latest review from non-author (prioritize changes requested)
+    latest_review = pull_request_reviews
+      .where.not(user: author)
+      .where(state: %w[CHANGES_REQUESTED COMMENTED APPROVED])
+      .order(submitted_at: :desc)
+      .first
+
+    # Get latest comment from non-author
+    latest_comment = pull_request_comments
+      .where.not(user: author)
+      .order(commented_at: :desc)
+      .first
+
+    # Determine which is more recent
+    review_time = latest_review&.submitted_at
+    comment_time = latest_comment&.commented_at
+
+    # Build activity info based on most recent
+    activity = nil
+
+    if comment_time && (!review_time || comment_time > review_time)
+      # Comment is more recent
+      is_backend = backend_members.include?(latest_comment.user)
+      activity = {
+        type: "comment",
+        user: latest_comment.user,
+        is_backend_reviewer: is_backend,
+        timestamp: latest_comment.commented_at,
+        preview: latest_comment.body&.truncate(100),
+        url: build_comment_url(latest_comment.github_id)
+      }
+    elsif latest_review
+      # Review is more recent
+      is_backend = backend_members.include?(latest_review.user)
+      activity = {
+        type: "review",
+        user: latest_review.user,
+        is_backend_reviewer: is_backend,
+        state: latest_review.state,
+        timestamp: latest_review.submitted_at,
+        url: url # Link to PR (reviews don't have direct URLs easily)
+      }
+    end
+
+    return nil unless activity
+
+    # Format the message
+    time_str = activity[:timestamp].in_time_zone("Eastern Time (US & Canada)").strftime("%-l:%M%p")
+    reviewer_type = activity[:is_backend_reviewer] ? "backend" : "teammate"
+
+    {
+      message: "#{activity[:user]} #{activity[:type] == 'comment' ? 'commented' : activity[:state].downcase.tr('_', ' ')} at #{time_str}",
+      user: activity[:user],
+      type: activity[:type],
+      reviewer_type: reviewer_type,
+      timestamp: activity[:timestamp],
+      preview: activity[:preview],
+      url: activity[:url]
+    }
+  rescue => e
+    Rails.logger.error "Error in latest_reviewer_activity: #{e.message}"
+    nil
+  end
+
   def approval_summary
     # Reload association to ensure we have latest reviews from DB
     pull_request_reviews.reload
@@ -502,5 +571,12 @@ class PullRequest < ApplicationRecord
       pending_users: [],
       pending_teams: []
     }
+  end
+
+  private
+
+  def build_comment_url(comment_github_id)
+    # GitHub comment URL format: https://github.com/{owner}/{repo}/pull/{number}#issuecomment-{id}
+    "https://github.com/#{repository_owner}/#{repository_name}/pull/#{number}#issuecomment-#{comment_github_id}"
   end
 end

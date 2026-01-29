@@ -331,14 +331,24 @@ class PullRequest < ApplicationRecord
       commits = github_service.pull_request_commits(number)
 
       # Check if any commits by the PR author happened after the last backend approval
+      # Exclude merge commits (merging master/main into the branch is standard practice)
       author_commits_after_approval = commits.any? do |commit|
         commit_author = commit.commit.author.name rescue commit.author&.login rescue nil
         commit_date = commit.commit.author.date rescue nil
+        commit_message = commit.commit.message rescue ""
 
-        # Check if commit is by the PR author and happened after approval
+        # Skip merge commits (merging master/main into the branch)
+        is_merge_commit = commit_message.downcase.start_with?("merge branch") ||
+                          commit_message.downcase.start_with?("merge pull request") ||
+                          commit_message.downcase.include?("merge branch 'master'") ||
+                          commit_message.downcase.include?("merge branch 'main'") ||
+                          commit_message.downcase.include?("merge remote-tracking branch")
+
+        # Check if commit is by the PR author, happened after approval, and is NOT a merge commit
         (commit_author == author || commit.author&.login == author) &&
           commit_date &&
-          commit_date > last_backend_approval.submitted_at
+          commit_date > last_backend_approval.submitted_at &&
+          !is_merge_commit
       end
 
       # Cache the result for 1 hour

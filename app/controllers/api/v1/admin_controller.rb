@@ -701,23 +701,17 @@ module Api
         end
 
         begin
-          # Capture output from migrations
-          output = []
-
           # Run pending migrations
           ActiveRecord::Migration.verbose = true
-          ActiveRecord::Base.connection.migration_context.migrate do |migration|
-            output << "Running: #{migration.name}"
-          end
+          ActiveRecord::MigrationContext.new(Rails.root.join("db/migrate")).migrate
 
           # Get current schema version
-          current_version = ActiveRecord::Base.connection.migration_context.current_version
+          current_version = ActiveRecord::SchemaMigration.new(ActiveRecord::Base.connection_pool).current_version rescue "unknown"
 
           render json: {
             success: true,
             message: "Migrations completed",
-            current_schema_version: current_version,
-            output: output.empty? ? [ "No pending migrations" ] : output
+            current_schema_version: current_version
           }
         rescue StandardError => e
           render json: {

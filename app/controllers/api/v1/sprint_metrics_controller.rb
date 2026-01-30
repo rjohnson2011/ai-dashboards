@@ -354,6 +354,8 @@ class Api::V1::SprintMetricsController < ApplicationController
         .order(:submitted_at)
         .first&.user || "Unknown"
 
+      biz_hours = calculate_business_hours(pr.ready_for_backend_review_at, pr.backend_approved_at)
+
       turnaround_data << {
         pr_number: pr.number,
         title: pr.title,
@@ -362,8 +364,8 @@ class Api::V1::SprintMetricsController < ApplicationController
         ready_at: pr.ready_for_backend_review_at,
         approved_at: pr.backend_approved_at,
         approved_by: approver,
-        turnaround_hours: turnaround_hours,
-        turnaround_business_hours: calculate_business_hours(pr.ready_for_backend_review_at, pr.backend_approved_at)
+        turnaround_hours: biz_hours,
+        turnaround_business_hours: biz_hours
       }
     end
 
@@ -400,6 +402,8 @@ class Api::V1::SprintMetricsController < ApplicationController
       # Only include positive turnaround times (approval after ready)
       next if turnaround_hours < 0
 
+      biz_hours = calculate_business_hours(ready_at, first_backend_approval.submitted_at)
+
       turnaround_data << {
         pr_number: pr.number,
         title: pr.title,
@@ -408,24 +412,23 @@ class Api::V1::SprintMetricsController < ApplicationController
         ready_at: ready_at,
         approved_at: first_backend_approval.submitted_at,
         approved_by: first_backend_approval.user,
-        turnaround_hours: turnaround_hours,
-        turnaround_business_hours: calculate_business_hours(ready_at, first_backend_approval.submitted_at)
+        turnaround_hours: biz_hours,
+        turnaround_business_hours: biz_hours
       }
     end
 
-    # Calculate statistics
-    hours = turnaround_data.map { |t| t[:turnaround_hours] }
-    business_hours = turnaround_data.map { |t| t[:turnaround_business_hours] }
+    # Calculate statistics using business hours only (9am-5pm EST, Mon-Fri)
+    biz_hours = turnaround_data.map { |t| t[:turnaround_business_hours] }
 
     {
       total_prs_reviewed: turnaround_data.count,
-      average_turnaround_hours: hours.any? ? (hours.sum / hours.count).round(1) : 0,
-      median_turnaround_hours: hours.any? ? sorted_median(hours).round(1) : 0,
-      average_business_hours: business_hours.any? ? (business_hours.sum / business_hours.count).round(1) : 0,
-      median_business_hours: business_hours.any? ? sorted_median(business_hours).round(1) : 0,
-      min_turnaround_hours: hours.any? ? hours.min.round(1) : 0,
-      max_turnaround_hours: hours.any? ? hours.max.round(1) : 0,
-      distribution: calculate_turnaround_distribution(hours),
+      average_turnaround_hours: biz_hours.any? ? (biz_hours.sum / biz_hours.count).round(1) : 0,
+      median_turnaround_hours: biz_hours.any? ? sorted_median(biz_hours).round(1) : 0,
+      average_business_hours: biz_hours.any? ? (biz_hours.sum / biz_hours.count).round(1) : 0,
+      median_business_hours: biz_hours.any? ? sorted_median(biz_hours).round(1) : 0,
+      min_turnaround_hours: biz_hours.any? ? biz_hours.min.round(1) : 0,
+      max_turnaround_hours: biz_hours.any? ? biz_hours.max.round(1) : 0,
+      distribution: calculate_turnaround_distribution(biz_hours),
       by_reviewer: calculate_turnaround_by_reviewer(turnaround_data),
       recent_reviews: turnaround_data.sort_by { |t| -t[:approved_at].to_i }.first(20)
     }
@@ -485,12 +488,12 @@ class Api::V1::SprintMetricsController < ApplicationController
 
   def calculate_turnaround_by_reviewer(turnaround_data)
     turnaround_data.group_by { |t| t[:approved_by] }.map do |reviewer, reviews|
-      hours = reviews.map { |r| r[:turnaround_hours] }
+      biz_hours = reviews.map { |r| r[:turnaround_business_hours] }
       {
         reviewer: reviewer,
         review_count: reviews.count,
-        average_hours: (hours.sum / hours.count).round(1),
-        median_hours: sorted_median(hours).round(1)
+        average_hours: (biz_hours.sum / biz_hours.count).round(1),
+        median_hours: sorted_median(biz_hours).round(1)
       }
     end.sort_by { |r| -r[:review_count] }
   end

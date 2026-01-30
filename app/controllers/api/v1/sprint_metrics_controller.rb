@@ -215,25 +215,31 @@ class Api::V1::SprintMetricsController < ApplicationController
       return
     end
 
-    # Calculate detailed metrics
-    metrics = {
-      sprint_info: {
-        sprint_number: current_sprint.sprint_number,
-        engineer_name: current_sprint.engineer_name,
-        start_date: current_sprint.start_date,
-        end_date: current_sprint.end_date
-      },
-      time_to_approval: calculate_time_to_approval(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner),
-      first_response_time: calculate_first_response_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner),
-      review_cycles: calculate_review_cycles(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner),
-      approval_rate: calculate_approval_rate(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner),
-      stale_prs: calculate_stale_prs(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner),
-      repository_breakdown: calculate_repository_breakdown(current_sprint.start_date, current_sprint.end_date),
-      sprint_comparison: calculate_sprint_comparison(current_sprint, repository_name, repository_owner),
-      queue_depth_over_time: calculate_queue_depth_over_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner)
-    }
+    begin
+      # Calculate detailed metrics with individual error handling
+      metrics = {
+        sprint_info: {
+          sprint_number: current_sprint.sprint_number,
+          engineer_name: current_sprint.engineer_name,
+          start_date: current_sprint.start_date,
+          end_date: current_sprint.end_date
+        }
+      }
 
-    render json: metrics
+      metrics[:time_to_approval] = calculate_time_to_approval(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:first_response_time] = calculate_first_response_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:review_cycles] = calculate_review_cycles(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:approval_rate] = calculate_approval_rate(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:stale_prs] = calculate_stale_prs(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:repository_breakdown] = calculate_repository_breakdown(current_sprint.start_date, current_sprint.end_date) rescue { error: "Failed to calculate" }
+      metrics[:sprint_comparison] = calculate_sprint_comparison(current_sprint, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:queue_depth_over_time] = calculate_queue_depth_over_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+
+      render json: metrics
+    rescue => e
+      Rails.logger.error "[SprintMetrics] Detailed metrics error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
+      render json: { error: "Failed to calculate detailed metrics: #{e.message}" }, status: :internal_server_error
+    end
   end
 
   def support_rotations
@@ -843,7 +849,7 @@ class Api::V1::SprintMetricsController < ApplicationController
     stale_prs = PullRequest
       .where(state: "open")
       .where("pr_created_at < ?", now - stale_threshold_days.days)
-      .where(backend_approval_status: [ "pending", nil ])
+      .where(backend_approval_status: [ "not_approved", nil ])
       .order(pr_created_at: :asc)
       .limit(20)
       .map do |pr|

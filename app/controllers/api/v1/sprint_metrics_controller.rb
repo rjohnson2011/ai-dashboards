@@ -226,14 +226,14 @@ class Api::V1::SprintMetricsController < ApplicationController
         }
       }
 
-      metrics[:time_to_approval] = calculate_time_to_approval(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:first_response_time] = calculate_first_response_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:review_cycles] = calculate_review_cycles(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:approval_rate] = calculate_approval_rate(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:stale_prs] = calculate_stale_prs(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:repository_breakdown] = calculate_repository_breakdown(current_sprint.start_date, current_sprint.end_date) rescue { error: "Failed to calculate" }
-      metrics[:sprint_comparison] = calculate_sprint_comparison(current_sprint, repository_name, repository_owner) rescue { error: "Failed to calculate" }
-      metrics[:queue_depth_over_time] = calculate_queue_depth_over_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner) rescue { error: "Failed to calculate" }
+      metrics[:time_to_approval] = begin; calculate_time_to_approval(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] time_to_approval: #{e.message}"; { error: e.message }; end
+      metrics[:first_response_time] = begin; calculate_first_response_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] first_response_time: #{e.message}"; { error: e.message }; end
+      metrics[:review_cycles] = begin; calculate_review_cycles(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] review_cycles: #{e.message}"; { error: e.message }; end
+      metrics[:approval_rate] = begin; calculate_approval_rate(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] approval_rate: #{e.message}"; { error: e.message }; end
+      metrics[:stale_prs] = begin; calculate_stale_prs(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] stale_prs: #{e.message}"; { error: e.message }; end
+      metrics[:repository_breakdown] = begin; calculate_repository_breakdown(current_sprint.start_date, current_sprint.end_date); rescue => e; Rails.logger.error "[SprintMetrics] repository_breakdown: #{e.message}"; { error: e.message }; end
+      metrics[:sprint_comparison] = begin; calculate_sprint_comparison(current_sprint, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] sprint_comparison: #{e.message}"; { error: e.message }; end
+      metrics[:queue_depth_over_time] = begin; calculate_queue_depth_over_time(current_sprint.start_date, current_sprint.end_date, repository_name, repository_owner); rescue => e; Rails.logger.error "[SprintMetrics] queue_depth_over_time: #{e.message}"; { error: e.message }; end
 
       render json: metrics
     rescue => e

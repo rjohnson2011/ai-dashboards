@@ -694,6 +694,41 @@ module Api
         }
       end
 
+      def run_migrations
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        begin
+          # Capture output from migrations
+          output = []
+
+          # Run pending migrations
+          ActiveRecord::Migration.verbose = true
+          ActiveRecord::Base.connection.migration_context.migrate do |migration|
+            output << "Running: #{migration.name}"
+          end
+
+          # Get current schema version
+          current_version = ActiveRecord::Base.connection.migration_context.current_version
+
+          render json: {
+            success: true,
+            message: "Migrations completed",
+            current_schema_version: current_version,
+            output: output.empty? ? [ "No pending migrations" ] : output
+          }
+        rescue StandardError => e
+          render json: {
+            success: false,
+            error: e.message,
+            error_class: e.class.name,
+            backtrace: e.backtrace&.first(10)
+          }, status: :internal_server_error
+        end
+      end
+
       private
 
       def cleanup_merged_prs_internal
@@ -811,41 +846,6 @@ module Api
         end
 
         render json: debug_info
-      end
-
-      def run_migrations
-        unless params[:token] == ENV["ADMIN_TOKEN"]
-          render json: { error: "Unauthorized" }, status: :unauthorized
-          return
-        end
-
-        begin
-          # Capture output from migrations
-          output = []
-
-          # Run pending migrations
-          ActiveRecord::Migration.verbose = true
-          ActiveRecord::Base.connection.migration_context.migrate do |migration|
-            output << "Running: #{migration.name}"
-          end
-
-          # Get current schema version
-          current_version = ActiveRecord::Base.connection.migration_context.current_version
-
-          render json: {
-            success: true,
-            message: "Migrations completed",
-            current_schema_version: current_version,
-            output: output.empty? ? [ "No pending migrations" ] : output
-          }
-        rescue StandardError => e
-          render json: {
-            success: false,
-            error: e.message,
-            error_class: e.class.name,
-            backtrace: e.backtrace&.first(10)
-          }, status: :internal_server_error
-        end
       end
 
       def clear_reviews_cache

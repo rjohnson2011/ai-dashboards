@@ -354,7 +354,12 @@ class Api::V1::SprintMetricsController < ApplicationController
         .order(:submitted_at)
         .first&.user || "Unknown"
 
-      biz_hours = calculate_business_hours(pr.ready_for_backend_review_at, pr.backend_approved_at)
+      total_biz = calculate_business_hours(pr.ready_for_backend_review_at, pr.backend_approved_at)
+
+      # Subtract author feedback windows (time author spent addressing changes requested)
+      feedback_windows = pr.calculate_author_feedback_windows
+      excluded = feedback_windows.sum { |ws, we| calculate_business_hours(ws, we) }
+      adjusted_biz = [ total_biz - excluded, 0 ].max
 
       turnaround_data << {
         pr_number: pr.number,
@@ -364,8 +369,10 @@ class Api::V1::SprintMetricsController < ApplicationController
         ready_at: pr.ready_for_backend_review_at,
         approved_at: pr.backend_approved_at,
         approved_by: approver,
-        turnaround_hours: biz_hours,
-        turnaround_business_hours: biz_hours
+        turnaround_hours: adjusted_biz,
+        turnaround_business_hours: adjusted_biz,
+        author_feedback_hours: excluded.round(1),
+        review_rounds: feedback_windows.length + 1
       }
     end
 
@@ -402,7 +409,12 @@ class Api::V1::SprintMetricsController < ApplicationController
       # Only include positive turnaround times (approval after ready)
       next if turnaround_hours < 0
 
-      biz_hours = calculate_business_hours(ready_at, first_backend_approval.submitted_at)
+      total_biz = calculate_business_hours(ready_at, first_backend_approval.submitted_at)
+
+      # Subtract author feedback windows
+      feedback_windows = pr.calculate_author_feedback_windows
+      excluded = feedback_windows.sum { |ws, we| calculate_business_hours(ws, we) }
+      adjusted_biz = [ total_biz - excluded, 0 ].max
 
       turnaround_data << {
         pr_number: pr.number,
@@ -412,23 +424,27 @@ class Api::V1::SprintMetricsController < ApplicationController
         ready_at: ready_at,
         approved_at: first_backend_approval.submitted_at,
         approved_by: first_backend_approval.user,
-        turnaround_hours: biz_hours,
-        turnaround_business_hours: biz_hours
+        turnaround_hours: adjusted_biz,
+        turnaround_business_hours: adjusted_biz,
+        author_feedback_hours: excluded.round(1),
+        review_rounds: feedback_windows.length + 1
       }
     end
 
-    # Calculate statistics using business hours only (9am-5pm EST, Mon-Fri)
-    biz_hours = turnaround_data.map { |t| t[:turnaround_business_hours] }
+    # Calculate statistics using adjusted business hours (excludes author feedback time)
+    adjusted_hours = turnaround_data.map { |t| t[:turnaround_business_hours] }
+    feedback_hours = turnaround_data.map { |t| t[:author_feedback_hours] }
 
     {
       total_prs_reviewed: turnaround_data.count,
-      average_turnaround_hours: biz_hours.any? ? (biz_hours.sum / biz_hours.count).round(1) : 0,
-      median_turnaround_hours: biz_hours.any? ? sorted_median(biz_hours).round(1) : 0,
-      average_business_hours: biz_hours.any? ? (biz_hours.sum / biz_hours.count).round(1) : 0,
-      median_business_hours: biz_hours.any? ? sorted_median(biz_hours).round(1) : 0,
-      min_turnaround_hours: biz_hours.any? ? biz_hours.min.round(1) : 0,
-      max_turnaround_hours: biz_hours.any? ? biz_hours.max.round(1) : 0,
-      distribution: calculate_turnaround_distribution(biz_hours),
+      average_turnaround_hours: adjusted_hours.any? ? (adjusted_hours.sum / adjusted_hours.count).round(1) : 0,
+      median_turnaround_hours: adjusted_hours.any? ? sorted_median(adjusted_hours).round(1) : 0,
+      average_business_hours: adjusted_hours.any? ? (adjusted_hours.sum / adjusted_hours.count).round(1) : 0,
+      median_business_hours: adjusted_hours.any? ? sorted_median(adjusted_hours).round(1) : 0,
+      average_author_feedback_hours: feedback_hours.any? ? (feedback_hours.sum / feedback_hours.count).round(1) : 0,
+      min_turnaround_hours: adjusted_hours.any? ? adjusted_hours.min.round(1) : 0,
+      max_turnaround_hours: adjusted_hours.any? ? adjusted_hours.max.round(1) : 0,
+      distribution: calculate_turnaround_distribution(adjusted_hours),
       by_reviewer: calculate_turnaround_by_reviewer(turnaround_data),
       recent_reviews: turnaround_data.sort_by { |t| -t[:approved_at].to_i }.first(20)
     }

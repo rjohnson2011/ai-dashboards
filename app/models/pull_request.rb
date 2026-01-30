@@ -214,6 +214,44 @@ class PullRequest < ApplicationRecord
     (seconds / 3600.0).round(1)
   end
 
+  # Returns array of [start_time, end_time] pairs representing windows where
+  # the author was addressing reviewer feedback. These should be EXCLUDED from
+  # review turnaround calculations since they represent author work, not reviewer wait time.
+  #
+  # Logic: When a backend reviewer submits CHANGES_REQUESTED, the clock stops.
+  # It restarts when any backend reviewer submits a new event (APPROVED, COMMENTED,
+  # or another CHANGES_REQUESTED), indicating they've re-engaged with the PR.
+  def calculate_author_feedback_windows
+    backend_members = BackendReviewGroupMember.pluck(:username)
+
+    backend_reviews = pull_request_reviews
+      .where(user: backend_members)
+      .where(state: [ PullRequestReview::CHANGES_REQUESTED, PullRequestReview::APPROVED,
+                      PullRequestReview::COMMENTED ])
+      .order(submitted_at: :asc)
+
+    windows = []
+    pending_cr_at = nil
+
+    backend_reviews.each do |review|
+      if review.state == PullRequestReview::CHANGES_REQUESTED
+        # Start an excluded window (only if not already in one)
+        pending_cr_at ||= review.submitted_at
+      elsif pending_cr_at
+        # Next backend reviewer event closes the excluded window
+        windows << [ pending_cr_at, review.submitted_at ]
+        pending_cr_at = nil
+      end
+    end
+
+    # If dangling CHANGES_REQUESTED with no subsequent review, close at approval time
+    if pending_cr_at && backend_approved_at
+      windows << [ pending_cr_at, backend_approved_at ]
+    end
+
+    windows
+  end
+
   def fully_approved?
     # A PR is fully approved when EITHER:
     # 1. All checks are passing (no failures)

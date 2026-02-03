@@ -182,8 +182,6 @@ module Api
         end
 
         github_token = ENV["GITHUB_TOKEN"]
-        owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
-        repo = ENV["GITHUB_REPO"] || "vets-api"
         client = Octokit::Client.new(access_token: github_token)
 
         updated_count = 0
@@ -192,7 +190,8 @@ module Api
         # Check all "open" PRs to see if they're actually closed/merged
         PullRequest.where(state: "open").find_each do |pr|
           begin
-            github_pr = client.pull_request("#{owner}/#{repo}", pr.number)
+            repo_full_name = "#{pr.repository_owner}/#{pr.repository_name}"
+            github_pr = client.pull_request(repo_full_name, pr.number)
 
             if github_pr.state == "closed"
               if github_pr.merged
@@ -204,7 +203,7 @@ module Api
               end
             end
           rescue Octokit::NotFound
-            # PR was deleted
+            # PR was deleted or from unknown repo
             pr.destroy
             deleted_count += 1
           rescue => e
@@ -727,8 +726,6 @@ module Api
 
       def cleanup_merged_prs_internal
         github_token = ENV["GITHUB_TOKEN"]
-        owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
-        repo = ENV["GITHUB_REPO"] || "vets-api"
         client = Octokit::Client.new(access_token: github_token)
 
         updated_count = 0
@@ -737,7 +734,8 @@ module Api
         # Check all "open" PRs to see if they're actually closed/merged
         PullRequest.where(state: "open").find_each do |pr|
           begin
-            github_pr = client.pull_request("#{owner}/#{repo}", pr.number)
+            repo_full_name = "#{pr.repository_owner}/#{pr.repository_name}"
+            github_pr = client.pull_request(repo_full_name, pr.number)
 
             if github_pr.state == "closed"
               if github_pr.merged
@@ -749,7 +747,7 @@ module Api
               end
             end
           rescue Octokit::NotFound
-            # PR was deleted
+            # PR was deleted or from unknown repo
             pr.destroy
             deleted_count += 1
           rescue => e

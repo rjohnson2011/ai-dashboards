@@ -106,7 +106,7 @@ jobs:
           echo "Step 4/4: Cleaning up merged/closed PRs at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
           response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/cleanup_merged_prs?token=${{ secrets.ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
-            --max-time 120)
+            --max-time 300)
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response: $body"

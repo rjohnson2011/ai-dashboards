@@ -563,6 +563,105 @@ module Api
         end
       end
 
+      def backfill_reviews
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        since_date = params[:since] ? Date.parse(params[:since]) : 7.days.ago.to_date
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        Rails.logger.info "[AdminController] Backfill reviews since #{since_date} for #{repo_owner}/#{repo_name}"
+
+        started_at = Time.current
+        github_service = GithubService.new(owner: repo_owner, repo: repo_name)
+        client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"])
+
+        # Fetch merged PRs from GitHub since the given date
+        query = "repo:#{repo_owner}/#{repo_name} is:pr is:merged merged:>=#{since_date}"
+        merged_prs = []
+        page = 1
+        loop do
+          results = client.search_issues(query, per_page: 100, page: page)
+          merged_prs.concat(results.items)
+          break if merged_prs.length >= results.total_count || results.items.empty?
+          page += 1
+          sleep 0.5
+        end
+
+        Rails.logger.info "[AdminController] Found #{merged_prs.count} merged PRs to backfill"
+
+        updated_count = 0
+        created_count = 0
+        errors = []
+
+        merged_prs.each do |gh_pr|
+          pr_number = gh_pr.number
+          begin
+            # Find or create the PR in our database
+            pr = PullRequest.find_by(number: pr_number, repository_name: repo_name, repository_owner: repo_owner)
+            unless pr
+              # Fetch full PR data to create the record
+              full_pr = client.pull_request("#{repo_owner}/#{repo_name}", pr_number)
+              pr = PullRequest.create!(
+                number: pr_number,
+                title: full_pr.title,
+                author: full_pr.user.login,
+                state: "merged",
+                github_id: full_pr.id,
+                repository_name: repo_name,
+                repository_owner: repo_owner,
+                url: full_pr.html_url,
+                draft: false,
+                created_at_gh: full_pr.created_at,
+                updated_at_gh: full_pr.updated_at,
+                merged_at: full_pr.merged_at,
+                closed_at: full_pr.closed_at
+              )
+              created_count += 1
+            end
+
+            # Fetch and update reviews from GitHub
+            reviews = github_service.pull_request_reviews(pr_number)
+            if reviews.any?
+              pr.pull_request_reviews.destroy_all
+              reviews.each do |review_data|
+                PullRequestReview.create!(
+                  pull_request_id: pr.id,
+                  github_id: review_data.id,
+                  user: review_data.user.login,
+                  state: review_data.state,
+                  submitted_at: review_data.submitted_at
+                )
+              end
+              updated_count += 1
+            end
+
+            # Update approval status
+            pr.update_backend_approval_status!
+
+            sleep 0.2
+          rescue => e
+            errors << "PR ##{pr_number}: #{e.message}"
+            Rails.logger.error "[AdminController] Backfill error PR ##{pr_number}: #{e.message}"
+          end
+        end
+
+        render json: {
+          success: true,
+          message: "Backfill completed",
+          since: since_date.to_s,
+          merged_prs_found: merged_prs.count,
+          prs_created: created_count,
+          reviews_updated: updated_count,
+          errors: errors.count,
+          error_details: errors.take(10),
+          duration_seconds: (Time.current - started_at).round(2)
+        }
+      end
+
       def fetch_ci_checks
         unless params[:token] == ENV["ADMIN_TOKEN"]
           render json: { error: "Unauthorized" }, status: :unauthorized

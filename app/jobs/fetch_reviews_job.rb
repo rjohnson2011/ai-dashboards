@@ -15,17 +15,26 @@ class FetchReviewsJob < ApplicationJob
       return
     end
 
-    # Only fetch reviews for PRs that need them (not already approved)
-    pr_ids = PullRequest.where(
-      state: "open",
+    repo_filter = {
       repository_name: repository_name || ENV["GITHUB_REPO"],
       repository_owner: repository_owner || ENV["GITHUB_OWNER"]
-    )
-    .where.not(backend_approval_status: "approved")
-    .where(draft: false)
-    .pluck(:id)
+    }
 
-    Rails.logger.info "[FetchReviewsJob] Found #{pr_ids.count} PRs needing review check"
+    # Fetch reviews for open PRs that aren't yet approved
+    open_pr_ids = PullRequest.where(state: "open", **repo_filter)
+      .where.not(backend_approval_status: "approved")
+      .where(draft: false)
+      .pluck(:id)
+
+    # Also fetch reviews for recently merged/closed PRs (last 30 min) to capture
+    # approvals that happened right before merge — otherwise these never get recorded
+    recent_pr_ids = PullRequest.where(state: %w[merged closed], **repo_filter)
+      .where("updated_at >= ?", 30.minutes.ago)
+      .pluck(:id)
+
+    pr_ids = (open_pr_ids + recent_pr_ids).uniq
+
+    Rails.logger.info "[FetchReviewsJob] Found #{open_pr_ids.count} open + #{recent_pr_ids.count} recently merged PRs needing review check"
 
     updated_count = 0
     errors = []

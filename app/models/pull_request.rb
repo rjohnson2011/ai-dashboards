@@ -457,39 +457,67 @@ class PullRequest < ApplicationRecord
       .order(submitted_at: :desc)
       .first
 
-    return nil unless latest_backend_review
+    # Also check regular PR comments from backend team members
+    latest_backend_comment = pull_request_comments
+      .where(user: backend_members)
+      .order(commented_at: :desc)
+      .first
 
-    # Check if there's been an APPROVED review from the same backend member after their comment/change request
+    # Pick whichever backend feedback is more recent (review or comment)
+    review_time = latest_backend_review&.submitted_at
+    comment_time = latest_backend_comment&.commented_at
+
+    if comment_time && (!review_time || comment_time > review_time)
+      latest_feedback_user = latest_backend_comment.user
+      latest_feedback_at = latest_backend_comment.commented_at
+    elsif latest_backend_review
+      latest_feedback_user = latest_backend_review.user
+      latest_feedback_at = latest_backend_review.submitted_at
+    else
+      return nil
+    end
+
+    # Check if there's been an APPROVED review from the same backend member after their feedback
     later_approval = pull_request_reviews
-      .where(user: latest_backend_review.user)
+      .where(user: latest_feedback_user)
       .where(state: "APPROVED")
-      .where("submitted_at > ?", latest_backend_review.submitted_at)
+      .where("submitted_at > ?", latest_feedback_at)
       .exists?
 
-    # If the reviewer approved after their comments, don't show as changes requested
+    # If the reviewer approved after their feedback, don't show as changes requested
     return nil if later_approval
 
-    # Check if there's a newer review from the PR author after the backend review
+    # Check if there's a newer response from the PR author after the backend feedback
+    # Look at both author reviews and author comments
     author_review_after = pull_request_reviews
       .where(user: author)
-      .where("submitted_at > ?", latest_backend_review.submitted_at)
+      .where("submitted_at > ?", latest_feedback_at)
       .order(submitted_at: :desc)
       .first
 
-    if author_review_after
+    author_comment_after = pull_request_comments
+      .where(user: author)
+      .where("commented_at > ?", latest_feedback_at)
+      .order(commented_at: :desc)
+      .first
+
+    # Pick the most recent author response (review or comment)
+    author_response_at = [ author_review_after&.submitted_at, author_comment_after&.commented_at ].compact.max
+
+    if author_response_at
       {
         status: "new_comment_from_author",
         message: "Author responded",
-        backend_commenter: latest_backend_review.user,
-        backend_comment_at: latest_backend_review.submitted_at,
-        author_comment_at: author_review_after.submitted_at
+        backend_commenter: latest_feedback_user,
+        backend_comment_at: latest_feedback_at,
+        author_comment_at: author_response_at
       }
     else
       {
         status: "changes_requested",
-        message: "#{latest_backend_review.user} at #{latest_backend_review.submitted_at.in_time_zone('Eastern Time (US & Canada)').strftime('%-l:%M%p %b %-d')}",
-        backend_commenter: latest_backend_review.user,
-        backend_comment_at: latest_backend_review.submitted_at
+        message: "#{latest_feedback_user} at #{latest_feedback_at.in_time_zone('Eastern Time (US & Canada)').strftime('%-l:%M%p %b %-d')}",
+        backend_commenter: latest_feedback_user,
+        backend_comment_at: latest_feedback_at
       }
     end
   rescue => e

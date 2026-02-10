@@ -33,6 +33,10 @@ class Api::V1::GithubWebhooksController < ApplicationController
 
     webhook_event.update!(status: "completed", processed_at: Time.current)
 
+    # Invalidate the reviews cache so the next API request returns fresh data
+    # The cache key is based on the last_scrape timestamp, so updating it forces a cache miss
+    invalidate_reviews_cache
+
     # Notify connected dashboard clients that data has changed
     ActionCable.server.broadcast("pull_requests", { action: "updated", timestamp: Time.current.iso8601 })
 
@@ -197,5 +201,12 @@ class Api::V1::GithubWebhooksController < ApplicationController
 
   def handle_ping_event
     Rails.logger.info "[Webhook] Ping received - webhook configured successfully!"
+  end
+
+  def invalidate_reviews_cache
+    owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+    repo = ENV["GITHUB_REPO"] || "vets-api"
+    scrape_key = "last_scrape:#{owner}:#{repo}"
+    Rails.cache.write(scrape_key, Time.current.to_f)
   end
 end

@@ -76,6 +76,14 @@ Rails.application.configure do
   # Only use :id for inspections in production.
   config.active_record.attributes_for_inspect = [ :id ]
 
+  # ActionCable allowed request origins
+  config.action_cable.allowed_request_origins = [
+    /https:\/\/.*\.vercel\.app/,
+    /https:\/\/.*\.onrender\.com/,
+    "https://localhost",
+    "http://localhost"
+  ]
+
   # Enable DNS rebinding protection and other `Host` header attacks.
   # Allow requests from Render.com domains and localhost for development
   config.hosts = [

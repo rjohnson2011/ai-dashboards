@@ -32,6 +32,10 @@ class Api::V1::GithubWebhooksController < ApplicationController
     end
 
     webhook_event.update!(status: "completed", processed_at: Time.current)
+
+    # Notify connected dashboard clients that data has changed
+    ActionCable.server.broadcast("pull_requests", { action: "updated", timestamp: Time.current.iso8601 })
+
     head :ok
   rescue => e
     Rails.logger.error "[Webhook] Error processing webhook: #{e.message}"

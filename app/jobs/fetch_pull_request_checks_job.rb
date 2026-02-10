@@ -48,6 +48,9 @@ class FetchPullRequestChecksJob < ApplicationJob
     # Update cache timestamp
     Rails.cache.write("last_refresh_time", Time.current)
 
+    # Notify connected dashboard clients that data has changed
+    ActionCable.server.broadcast("pull_requests", { action: "updated", timestamp: Time.current.iso8601 })
+
     Rails.logger.info "[FetchPullRequestChecksJob] Successfully updated PR ##{pr.number}"
 
   rescue => e

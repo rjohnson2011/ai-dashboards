@@ -2,10 +2,11 @@ name: PR Scraper Cron
 
 on:
   schedule:
-    # Run every 15 minutes during business hours (Mon-Fri, 6am-6pm PT)
+    # Run every 12 minutes during business hours (Mon-Fri, 6am-6pm PT)
     # PT is UTC-8 (winter) / UTC-7 (summer), so 6am-6pm PT = 13:00-02:00 UTC (winter)
     # Using 13:00-01:59 UTC to cover 6am-6pm PT year-round
-    - cron: '*/15 13-23,0-1 * * 1-5'
+    # 12 min is max safe frequency: ~800 API calls/run × 5 runs/hour = 4,000 (limit: 5,000/hour)
+    - cron: '*/12 13-23,0-1 * * 1-5'
   workflow_dispatch: # Allow manual trigger
 
 jobs:

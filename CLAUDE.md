@@ -19,7 +19,7 @@ Rails 8 API backend for the PR Dashboard application. Tracks pull requests, revi
 - All scraper jobs run synchronously via `perform_now`
 
 ## Version
-Current version: **4.0** (defined in `app/controllers/api/v1/reviews_controller.rb`)
+Current version: **5.0** (defined in `app/controllers/api/v1/reviews_controller.rb`)
 
 ## Key Files
 

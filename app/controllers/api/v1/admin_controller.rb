@@ -961,9 +961,11 @@ module Api
         repository_name = ENV["GITHUB_REPO"] || "vets-api"
         repository_owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
 
-        # Delete future rotations and recreate from the hardcoded schedule
-        current_date = Date.today
-        deleted_count = SupportRotation.where("start_date > ?", current_date).destroy_all.count
+        # Clean up duplicate sprint numbers, keeping only the newest record per sprint
+        SupportRotation.select(:sprint_number).group(:sprint_number).having("COUNT(*) > 1").pluck(:sprint_number).each do |sprint_num|
+          dupes = SupportRotation.where(sprint_number: sprint_num).order(created_at: :desc)
+          dupes.offset(1).destroy_all
+        end
 
         rotations_data = [
           { sprint_number: 16, engineer_name: "stevenjcumming", start_date: "2025-12-04", end_date: "2025-12-17" },

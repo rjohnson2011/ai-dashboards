@@ -4,12 +4,13 @@ namespace :support_rotations do
     repository_name = ENV["GITHUB_REPO"] || "vets-api"
     repository_owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
 
-    # Delete all future rotations (after current sprint)
-    current_date = Date.today
-    deleted_count = SupportRotation.where("start_date > ?", current_date).destroy_all.count
+    # Clean up duplicate sprint numbers first, keeping only the newest record per sprint
+    SupportRotation.select(:sprint_number).group(:sprint_number).having("COUNT(*) > 1").pluck(:sprint_number).each do |sprint_num|
+      dupes = SupportRotation.where(sprint_number: sprint_num).order(created_at: :desc)
+      dupes.offset(1).destroy_all
+    end
 
-    puts "Deleted #{deleted_count} future rotations"
-    puts "Creating new rotations..."
+    puts "Creating/updating rotations..."
 
     rotations = [
       # December 2025 - January 2026
@@ -36,15 +37,15 @@ namespace :support_rotations do
     ]
 
     rotations.each do |rotation_data|
-      rotation = SupportRotation.create!(
-        sprint_number: rotation_data[:sprint_number],
+      rotation = SupportRotation.find_or_initialize_by(sprint_number: rotation_data[:sprint_number])
+      rotation.update!(
         engineer_name: rotation_data[:engineer_name],
         start_date: Date.parse(rotation_data[:start_date]),
         end_date: Date.parse(rotation_data[:end_date]),
         repository_name: repository_name,
         repository_owner: repository_owner
       )
-      puts "Created Sprint ##{rotation.sprint_number}: #{rotation.engineer_name} (#{rotation.start_date} to #{rotation.end_date})"
+      puts "✓ Sprint ##{rotation.sprint_number}: #{rotation.engineer_name} (#{rotation.start_date} to #{rotation.end_date})"
     end
 
     puts "\nAll rotations updated successfully!"

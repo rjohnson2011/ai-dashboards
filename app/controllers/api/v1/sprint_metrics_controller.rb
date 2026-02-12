@@ -16,29 +16,29 @@ class Api::V1::SprintMetricsController < ApplicationController
                       SupportRotation.current_sprint
 
         if base_sprint
+          scope = SupportRotation.all
+          scope = scope.where(repository_name: repository_name, repository_owner: repository_owner) if repository_name && repository_owner
+
           if sprint_offset < 0
             # Negative offset = go to PAST sprints (earlier end dates)
-            # Order by end_date descending (newest first), find sprints that ended before current
-            current_sprint = SupportRotation
-              .where(repository_name: repository_name, repository_owner: repository_owner)
+            current_sprint = scope
               .where("end_date < ?", base_sprint.start_date)
               .order(end_date: :desc)
-              .offset(-sprint_offset - 1) # offset -1 means first sprint before current
+              .offset(-sprint_offset - 1)
               .first
           else
             # Positive offset = go to FUTURE sprints (later start dates)
-            # Order by start_date ascending (oldest first), find sprints that start after current
-            current_sprint = SupportRotation
-              .where(repository_name: repository_name, repository_owner: repository_owner)
+            current_sprint = scope
               .where("start_date > ?", base_sprint.end_date)
               .order(start_date: :asc)
-              .offset(sprint_offset - 1) # offset 1 means first sprint after current
+              .offset(sprint_offset - 1)
               .first
           end
         else
           # No current sprint found, fall back to absolute positioning
-          current_sprint = SupportRotation
-            .where(repository_name: repository_name, repository_owner: repository_owner)
+          scope = SupportRotation.all
+          scope = scope.where(repository_name: repository_name, repository_owner: repository_owner) if repository_name && repository_owner
+          current_sprint = scope
             .order(start_date: :desc)
             .offset(-sprint_offset)
             .first
@@ -136,15 +136,11 @@ class Api::V1::SprintMetricsController < ApplicationController
     )
 
     # Check if there are previous/next sprints available for navigation
-    has_previous_sprint = SupportRotation
-      .where(repository_name: repository_name, repository_owner: repository_owner)
-      .where("end_date < ?", current_sprint.start_date)
-      .exists?
+    nav_scope = SupportRotation.all
+    nav_scope = nav_scope.where(repository_name: repository_name, repository_owner: repository_owner) if repository_name && repository_owner
 
-    has_next_sprint = SupportRotation
-      .where(repository_name: repository_name, repository_owner: repository_owner)
-      .where("start_date > ?", current_sprint.end_date)
-      .exists?
+    has_previous_sprint = nav_scope.where("end_date < ?", current_sprint.start_date).exists?
+    has_next_sprint = nav_scope.where("start_date > ?", current_sprint.end_date).exists?
 
     render json: {
       current_sprint: {

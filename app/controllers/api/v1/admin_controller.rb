@@ -951,6 +951,57 @@ module Api
         # Update the last_scrape timestamp to invalidate any remaining caches
         Rails.cache.write("last_scrape:department-of-veterans-affairs:vets-api", Time.current.to_i)
       end
+
+      def update_support_rotations
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        repository_name = ENV["GITHUB_REPO"] || "vets-api"
+        repository_owner = ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        # Delete future rotations and recreate from the hardcoded schedule
+        current_date = Date.today
+        deleted_count = SupportRotation.where("start_date > ?", current_date).destroy_all.count
+
+        rotations_data = [
+          { sprint_number: 16, engineer_name: "stevenjcumming", start_date: "2025-12-04", end_date: "2025-12-17" },
+          { sprint_number: 17, engineer_name: "rmtolmach", start_date: "2025-12-18", end_date: "2025-12-31" },
+          { sprint_number: 18, engineer_name: "stiehlrod", start_date: "2026-01-01", end_date: "2026-01-14" },
+          { sprint_number: 19, engineer_name: "RachalCassity", start_date: "2026-01-15", end_date: "2026-01-28" },
+          { sprint_number: 20, engineer_name: "rjohnson2011", start_date: "2026-01-29", end_date: "2026-02-11" },
+          { sprint_number: 21, engineer_name: "Crankums", start_date: "2026-02-12", end_date: "2026-02-25" },
+          { sprint_number: 22, engineer_name: "stevenjcumming", start_date: "2026-02-26", end_date: "2026-03-11" },
+          { sprint_number: 23, engineer_name: "jweissman", start_date: "2026-03-12", end_date: "2026-03-25" },
+          { sprint_number: 24, engineer_name: "rmtolmach", start_date: "2026-03-26", end_date: "2026-04-08" },
+          { sprint_number: 25, engineer_name: "stiehlrod", start_date: "2026-04-09", end_date: "2026-04-22" },
+          { sprint_number: 26, engineer_name: "RachalCassity", start_date: "2026-04-23", end_date: "2026-05-06" },
+          { sprint_number: 27, engineer_name: "rjohnson2011", start_date: "2026-05-07", end_date: "2026-05-20" },
+          { sprint_number: 28, engineer_name: "Crankums", start_date: "2026-05-21", end_date: "2026-06-03" },
+          { sprint_number: 29, engineer_name: "stevenjcumming", start_date: "2026-06-04", end_date: "2026-06-17" }
+        ]
+
+        created = 0
+        rotations_data.each do |r|
+          rotation = SupportRotation.find_or_initialize_by(sprint_number: r[:sprint_number])
+          rotation.update!(
+            engineer_name: r[:engineer_name],
+            start_date: Date.parse(r[:start_date]),
+            end_date: Date.parse(r[:end_date]),
+            repository_name: repository_name,
+            repository_owner: repository_owner
+          )
+          created += 1
+        end
+
+        render json: {
+          message: "Rotations updated",
+          deleted: deleted_count,
+          created: created,
+          total: SupportRotation.count
+        }
+      end
     end
   end
 end

@@ -6,7 +6,20 @@ class BackendReviewGroupMember < ApplicationRecord
   after_destroy :update_pull_request_approvals
 
   def self.member?(username)
-    exists?(username: username)
+    if @cached_usernames
+      @cached_usernames.include?(username)
+    else
+      exists?(username: username)
+    end
+  end
+
+  # Preload all member usernames into memory to avoid repeated DB queries
+  def self.cache_members!
+    @cached_usernames = pluck(:username)
+  end
+
+  def self.cached_usernames
+    @cached_usernames || pluck(:username)
   end
 
   def self.refresh_members(members)

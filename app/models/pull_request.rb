@@ -103,7 +103,7 @@ class PullRequest < ApplicationRecord
       .select { |review| review.state == PullRequestReview::APPROVED }
       .map(&:user)
 
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
     backend_approved = (approved_users & backend_members).any?
 
     backend_approved ? "approved" : "not_approved"
@@ -175,7 +175,7 @@ class PullRequest < ApplicationRecord
       .where(state: PullRequestReview::APPROVED)
       .pluck(:user)
 
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
     non_backend_approvals = approved_users - backend_members
 
     # Ready if we have at least one non-backend approval
@@ -222,7 +222,7 @@ class PullRequest < ApplicationRecord
   # It restarts when any backend reviewer submits a new event (APPROVED, COMMENTED,
   # or another CHANGES_REQUESTED), indicating they've re-engaged with the PR.
   def calculate_author_feedback_windows
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
 
     backend_reviews = pull_request_reviews
       .where(user: backend_members)
@@ -349,7 +349,7 @@ class PullRequest < ApplicationRecord
     return false unless backend_approval_status == "approved"
 
     # Get the timestamp of the last backend approval
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
     last_backend_approval = pull_request_reviews
       .where(state: PullRequestReview::APPROVED)
       .where(user: backend_members)
@@ -400,7 +400,7 @@ class PullRequest < ApplicationRecord
 
   def changes_requested_info
     # Get backend team members
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
 
     # Check for commits after backend approval (new logic)
     if has_commits_after_backend_approval?
@@ -528,7 +528,7 @@ class PullRequest < ApplicationRecord
   # Returns the latest reviewer activity (comment or review) from non-author users
   # This shows teammate feedback like "riley commented at 3:45 PM"
   def latest_reviewer_activity
-    backend_members = BackendReviewGroupMember.pluck(:username)
+    backend_members = BackendReviewGroupMember.cached_usernames
 
     # Get latest review from non-author (prioritize changes requested)
     latest_review = pull_request_reviews
@@ -595,8 +595,8 @@ class PullRequest < ApplicationRecord
   end
 
   def approval_summary
-    # Reload association to ensure we have latest reviews from DB
-    pull_request_reviews.reload
+    # Use already-loaded association if available (eager loading), otherwise reload
+    pull_request_reviews.reload unless pull_request_reviews.loaded?
 
     # Get the latest ACTIONABLE review from each user
     # COMMENTED reviews don't change approval state - only APPROVED, CHANGES_REQUESTED, DISMISSED do

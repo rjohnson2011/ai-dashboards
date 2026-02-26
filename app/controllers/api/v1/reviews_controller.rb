@@ -32,16 +32,17 @@ class Api::V1::ReviewsController < ApplicationController
           base_scope = PullRequest
         end
 
-        # Fetch open PRs WITHOUT eager loading to reduce memory usage
-        # We'll load associations selectively only for data we actually use
+        # Eager load associations to avoid N+1 queries (critical for cross-region DB latency)
         open_pull_requests = base_scope.open
           .where(backend_approval_status: "not_approved")
+          .includes(:pull_request_reviews, :pull_request_comments)
           .order(pr_updated_at: :desc)
           .limit(150) # Cap at 150 PRs to prevent memory issues
 
         # Fetch backend approved PRs separately
         approved_pull_requests = base_scope.open
           .where(backend_approval_status: "approved")
+          .includes(:pull_request_reviews, :pull_request_comments)
           .order(pr_updated_at: :desc)
           .limit(100) # Cap at 100 approved PRs
 
@@ -75,8 +76,11 @@ class Api::V1::ReviewsController < ApplicationController
           }
         end
 
+        # Preload backend team members once (used by changes_requested_info and latest_reviewer_activity)
+        BackendReviewGroupMember.cache_members!
+
         # Batch load ALL failing check runs for all PRs at once to avoid N+1 queries
-        all_pr_ids = (open_pull_requests.pluck(:id) + approved_pull_requests.pluck(:id)).uniq
+        all_pr_ids = (open_pull_requests.map(&:id) + approved_pull_requests.map(&:id)).uniq
         failing_checks_by_pr = CheckRun
           .where(pull_request_id: all_pr_ids)
           .where(status: [ "failure", "error", "cancelled" ])

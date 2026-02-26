@@ -213,7 +213,8 @@ class Api::V1::ReviewsController < ApplicationController
       })
     rescue => e
       Rails.logger.error "Error fetching PRs: #{e.message}"
-      render json: { error: "Failed to fetch pull requests" }, status: :internal_server_error
+      Rails.logger.error e.backtrace&.first(10)&.join("\n")
+      render json: { error: "Failed to fetch pull requests", details: e.message, backtrace: e.backtrace&.first(5) }, status: :internal_server_error
     end
   end
 

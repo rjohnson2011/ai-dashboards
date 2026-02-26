@@ -12,7 +12,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       # Step 1: Fetch basic PR info for all repos (low memory)
       - name: Step 1/4 - Fetch PR info (lite mode)
@@ -59,7 +59,7 @@ jobs:
             echo "Step 2/4: Fetching reviews for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
             response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/fetch_reviews?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=${OWNER}" \
               -H "Content-Type: application/json" \
-              --max-time 300)
+              --max-time 540)
             http_code=$(echo "$response" | tail -n1)
             body=$(echo "$response" | sed '$d')
             echo "Response ($repo): $body"

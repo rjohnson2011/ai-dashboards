@@ -7,7 +7,7 @@ Rails 8 API backend for the PR Dashboard application. Tracks pull requests, revi
 
 ### Hosting & Infrastructure
 - **API Server**: Render.com free tier (512MB RAM limit)
-- **Database**: Neon PostgreSQL (serverless, free tier)
+- **Database**: Supabase PostgreSQL (free tier, no compute hour limit)
 - **Cron Jobs**: GitHub Actions (replaced Render cron jobs)
   - Runs every 15 minutes during business hours (Mon-Fri, 6am-6pm PT)
   - Workflow: `.github/workflows/pr-scraper.yml`
@@ -50,7 +50,7 @@ Current version: **5.0** (defined in `app/controllers/api/v1/reviews_controller.
 ## Configuration
 
 ### Environment Variables (on Render)
-- `DATABASE_URL` - Neon PostgreSQL connection string
+- `DATABASE_URL` - Supabase PostgreSQL connection string (Session pooler, port 5432)
 - `GITHUB_TOKEN` - GitHub PAT for API access
 - `GITHUB_OWNER` - Default: `department-of-veterans-affairs`
 - `GITHUB_REPO` - Default: `vets-api`

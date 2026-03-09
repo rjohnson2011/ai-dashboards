@@ -85,12 +85,14 @@ jobs:
             echo "Step 3/4: Fetching CI checks for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
             response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/fetch_ci_checks?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=${OWNER}" \
               -H "Content-Type: application/json" \
-              --max-time 300)
+              --max-time 480) || true
             http_code=$(echo "$response" | tail -n1)
             body=$(echo "$response" | sed '$d')
             echo "Response ($repo): $body"
             echo "HTTP Status ($repo): $http_code"
-            if [ "$http_code" -ge 400 ]; then
+            if [ -z "$response" ]; then
+              echo "Warning: Step 3 timed out or failed for $repo (continuing anyway)"
+            elif [ "$http_code" -ge 400 ]; then
               echo "Warning: Step 3 failed for $repo with status $http_code (continuing anyway)"
             else
               echo "Step 3/4 completed for $repo"
@@ -107,12 +109,14 @@ jobs:
           echo "Step 4/4: Cleaning up merged/closed PRs at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
           response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/cleanup_merged_prs?token=${{ secrets.ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
-            --max-time 300)
+            --max-time 300) || true
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           echo "Response: $body"
           echo "HTTP Status: $http_code"
-          if [ "$http_code" -ge 400 ]; then
+          if [ -z "$response" ]; then
+            echo "Warning: Step 4 timed out or failed (continuing anyway)"
+          elif [ "$http_code" -ge 400 ]; then
             echo "Warning: Step 4 failed with status $http_code (continuing anyway)"
           else
             echo "Step 4/4 completed successfully"

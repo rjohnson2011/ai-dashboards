@@ -14,6 +14,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Step 0: Wake up the Render server (free tier sleeps after inactivity)
+      - name: Wake up server
+        run: |
+          echo "Pinging server to wake it up..."
+          for i in 1 2 3 4 5; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ secrets.API_URL }}/api/v1/reviews/version" 2>/dev/null) || true
+            if [ "$response" = "200" ]; then
+              echo "Server is up (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: server not ready (status: ${response:-timeout}), waiting 15s..."
+            sleep 15
+          done
+          # Final check
+          response=$(curl -s --max-time 60 "${{ secrets.API_URL }}/api/v1/reviews/version") || true
+          if [ -z "$response" ]; then
+            echo "Warning: Server may not be fully awake yet, proceeding anyway"
+          else
+            echo "Server responded: $response"
+          fi
+        env:
+          API_URL: ${{ secrets.API_URL }}
+
       # Step 1: Fetch basic PR info for all repos (low memory)
       - name: Step 1/4 - Fetch PR info (lite mode)
         run: |
@@ -25,12 +48,17 @@ jobs:
             echo "Step 1/4: Fetching basic PR info for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
             response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/manual_scraper_run?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=${OWNER}&lite_mode=true" \
               -H "Content-Type: application/json" \
-              --max-time 300)
+              --max-time 300) || true
             http_code=$(echo "$response" | tail -n1)
             body=$(echo "$response" | sed '$d')
             echo "Response ($repo): $body"
             echo "HTTP Status ($repo): $http_code"
-            if [ "$http_code" -ge 400 ]; then
+            if [ -z "$response" ]; then
+              echo "Error: Step 1 timed out for $repo"
+              if [ "$repo" = "vets-api" ]; then
+                step_failed=true
+              fi
+            elif [ "$http_code" -ge 400 ]; then
               echo "Error: Step 1 failed for $repo with status $http_code"
               if [ "$repo" = "vets-api" ]; then
                 step_failed=true
@@ -59,12 +87,14 @@ jobs:
             echo "Step 2/4: Fetching reviews for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
             response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.API_URL }}/api/v1/admin/fetch_reviews?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=${OWNER}" \
               -H "Content-Type: application/json" \
-              --max-time 540)
+              --max-time 540) || true
             http_code=$(echo "$response" | tail -n1)
             body=$(echo "$response" | sed '$d')
             echo "Response ($repo): $body"
             echo "HTTP Status ($repo): $http_code"
-            if [ "$http_code" -ge 400 ]; then
+            if [ -z "$response" ]; then
+              echo "Warning: Step 2 timed out or failed for $repo (continuing anyway)"
+            elif [ "$http_code" -ge 400 ]; then
               echo "Warning: Step 2 failed for $repo with status $http_code (continuing anyway)"
             else
               echo "Step 2/4 completed for $repo"

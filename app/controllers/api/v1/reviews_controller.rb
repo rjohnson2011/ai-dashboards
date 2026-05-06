@@ -1,4 +1,7 @@
 class Api::V1::ReviewsController < ApplicationController
+  # Health/version endpoint is public so monitoring can hit it without auth.
+  skip_before_action :require_google_auth!, only: :version
+
   def index
     begin
       # Get repository parameters

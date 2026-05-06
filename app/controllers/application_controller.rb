@@ -1,14 +1,28 @@
 class ApplicationController < ActionController::API
-  # Add a dummy verify_authenticity_token callback to fix cron job error
-  # The cached Docker image has an old auth_controller.rb that tries to skip this
-  # This is a temporary workaround until Render's cache clears
-
-  # First, define the callback that auth_controller tries to skip
+  # Legacy callback retained because a previously-deployed image referenced it.
   before_action :verify_authenticity_token
 
-  # Then define the method (it does nothing)
   def verify_authenticity_token
-    # Do nothing - this is just to prevent the ArgumentError
-    # in the cached auth_controller.rb file
+    # No-op — exists only to satisfy historical skip_before_action calls.
+  end
+
+  before_action :require_google_auth!
+
+  attr_reader :current_user
+
+  private
+
+  def require_google_auth!
+    token = bearer_token
+    @current_user = GoogleTokenVerifier.call(token)
+  rescue GoogleTokenVerifier::DisallowedDomain => e
+    render json: { error: "Forbidden", reason: e.message }, status: :forbidden
+  rescue GoogleTokenVerifier::InvalidToken, Google::Auth::IDTokens::VerificationError => e
+    render json: { error: "Unauthorized", reason: e.message }, status: :unauthorized
+  end
+
+  def bearer_token
+    auth = request.headers["Authorization"].to_s
+    auth.start_with?("Bearer ") ? auth.sub("Bearer ", "") : nil
   end
 end

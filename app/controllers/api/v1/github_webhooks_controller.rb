@@ -1,4 +1,7 @@
 class Api::V1::GithubWebhooksController < ApplicationController
+  # GitHub webhooks authenticate via signature, not user session.
+  skip_before_action :require_google_auth!
+
   # API mode doesn't have CSRF protection
   before_action :verify_webhook_signature
 

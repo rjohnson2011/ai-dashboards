@@ -3,6 +3,9 @@ require "rake"
 module Api
   module V1
     class AdminController < ApplicationController
+      # Admin endpoints are gated by their own ADMIN_TOKEN check inline.
+      skip_before_action :require_google_auth!
+
       def initialize_data
         # Simple auth check - you should use a proper admin auth in production
         unless params[:token] == ENV["ADMIN_TOKEN"]

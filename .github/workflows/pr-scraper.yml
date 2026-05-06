@@ -41,7 +41,7 @@ jobs:
       - name: Step 1/4 - Fetch PR info (lite mode)
         run: |
           REPOS="vets-api vets-api-mockdata platform-atlas"
-          OWNER="department-of-veterans-affairs"
+          OWNER="software"
           step_failed=false
 
           for repo in $REPOS; do
@@ -81,7 +81,7 @@ jobs:
       - name: Step 2/4 - Fetch reviews
         run: |
           REPOS="vets-api vets-api-mockdata platform-atlas"
-          OWNER="department-of-veterans-affairs"
+          OWNER="software"
 
           for repo in $REPOS; do
             echo "Step 2/4: Fetching reviews for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."
@@ -109,7 +109,7 @@ jobs:
       - name: Step 3/4 - Fetch CI checks
         run: |
           REPOS="vets-api vets-api-mockdata platform-atlas"
-          OWNER="department-of-veterans-affairs"
+          OWNER="software"
 
           for repo in $REPOS; do
             echo "Step 3/4: Fetching CI checks for $repo at $(date -u '+%Y-%m-%d %H:%M:%S UTC')..."

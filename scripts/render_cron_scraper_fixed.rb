@@ -125,7 +125,7 @@ begin
 
     # Try a raw API call to debug
     require 'net/http'
-    uri = URI('https://api.github.com/rate_limit')
+    uri = URI("#{ENV.fetch('GITHUB_API_ENDPOINT', 'https://api.va.ghe.com')}/rate_limit")
     req = Net::HTTP::Get.new(uri)
     req['Authorization'] = "token #{ENV['GITHUB_TOKEN']}"
 

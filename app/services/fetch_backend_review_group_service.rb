@@ -1,5 +1,7 @@
 class FetchBackendReviewGroupService
-  TEAM_URL = "https://api.github.com/orgs/department-of-veterans-affairs/teams/backend-review-group/members"
+  API_ENDPOINT = ENV.fetch("GITHUB_API_ENDPOINT", "https://api.va.ghe.com")
+  ORG = ENV.fetch("GITHUB_OWNER", "software")
+  TEAM_URL = "#{API_ENDPOINT}/orgs/#{ORG}/teams/backend-review-group/members"
 
   def self.call
     new.call

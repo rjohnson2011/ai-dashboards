@@ -5,7 +5,7 @@ class GithubScraperService
   include HTTParty
 
   def initialize(owner: nil, repo: nil)
-    @base_url = "https://github.com"
+    @base_url = ENV.fetch("GITHUB_WEB_ENDPOINT", "https://va.ghe.com")
     @owner = owner
     @repo = repo
     # Add User-Agent to avoid being blocked

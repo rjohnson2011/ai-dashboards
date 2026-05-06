@@ -3,7 +3,7 @@ require "nokogiri"
 
 class JavascriptGithubScraperService
   def initialize
-    @base_url = "https://github.com"
+    @base_url = ENV.fetch("GITHUB_WEB_ENDPOINT", "https://va.ghe.com")
   end
 
   def scrape_pr_checks_with_js(pr_url)

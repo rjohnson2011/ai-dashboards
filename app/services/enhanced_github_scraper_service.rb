@@ -5,7 +5,7 @@ class EnhancedGithubScraperService
   include HTTParty
 
   def initialize(owner: nil, repo: nil)
-    @base_url = "https://github.com"
+    @base_url = ENV.fetch("GITHUB_WEB_ENDPOINT", "https://va.ghe.com")
     @owner = owner
     @repo = repo
     self.class.headers "User-Agent" => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"

@@ -652,7 +652,7 @@ class PullRequest < ApplicationRecord
   private
 
   def build_comment_url(comment_github_id)
-    # GitHub comment URL format: https://github.com/{owner}/{repo}/pull/{number}#issuecomment-{id}
-    "https://github.com/#{repository_owner}/#{repository_name}/pull/#{number}#issuecomment-#{comment_github_id}"
+    web_endpoint = ENV.fetch("GITHUB_WEB_ENDPOINT", "https://va.ghe.com")
+    "#{web_endpoint}/#{repository_owner}/#{repository_name}/pull/#{number}#issuecomment-#{comment_github_id}"
   end
 end

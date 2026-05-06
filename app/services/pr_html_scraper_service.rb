@@ -11,7 +11,8 @@ class PrHtmlScraperService
 
   # Scrape the actual PR web page to check for approvals
   def verify_pr_from_html(pr_number, repository_name, repository_owner)
-    url = "https://github.com/#{repository_owner}/#{repository_name}/pull/#{pr_number}"
+    web_endpoint = ENV.fetch("GITHUB_WEB_ENDPOINT", "https://va.ghe.com")
+    url = "#{web_endpoint}/#{repository_owner}/#{repository_name}/pull/#{pr_number}"
 
     Rails.logger.info "[PrHtmlScraper] Fetching HTML from #{url}"
 

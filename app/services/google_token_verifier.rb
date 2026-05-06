@@ -13,7 +13,7 @@ class GoogleTokenVerifier
   def call(id_token)
     raise InvalidToken, "missing token" if id_token.blank?
 
-    payload = verifier.verify(id_token)
+    payload = Google::Auth::IDTokens.verify_oidc(id_token, aud: client_id)
     raise InvalidToken, "could not verify token" unless payload
     raise InvalidToken, "email not verified" unless payload["email_verified"]
 
@@ -29,10 +29,6 @@ class GoogleTokenVerifier
   end
 
   private
-
-  def verifier
-    @verifier ||= Google::Auth::IDTokens::Verifier.new(aud: client_id)
-  end
 
   def client_id
     ENV.fetch("GOOGLE_CLIENT_ID") { raise InvalidToken, "GOOGLE_CLIENT_ID not configured" }

@@ -17,7 +17,7 @@ class ApplicationController < ActionController::API
     @current_user = GoogleTokenVerifier.call(token)
   rescue GoogleTokenVerifier::DisallowedDomain => e
     render json: { error: "Forbidden", reason: e.message }, status: :forbidden
-  rescue GoogleTokenVerifier::InvalidToken, Google::Auth::IDTokens::VerificationError => e
+  rescue GoogleTokenVerifier::InvalidToken, Google::Auth::Error => e
     render json: { error: "Unauthorized", reason: e.message }, status: :unauthorized
   end
 

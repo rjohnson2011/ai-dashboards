@@ -2,6 +2,7 @@ class PullRequest < ApplicationRecord
   has_many :check_runs, dependent: :destroy
   has_many :pull_request_reviews, dependent: :destroy
   has_many :pull_request_comments, dependent: :destroy
+  has_many :pull_request_review_comments, dependent: :destroy
 
   validates :github_id, presence: true
   validates :number, presence: true
@@ -445,13 +446,26 @@ class PullRequest < ApplicationRecord
     # COMMENTED reviews count as implicit change requests since reviewers often leave
     # feedback without formally requesting changes.
     comments = pull_request_comments.to_a
+    review_comments = pull_request_review_comments.to_a
     latest_backend_review = reviews
       .select { |r| backend_members.include?(r.user) && %w[CHANGES_REQUESTED COMMENTED].include?(r.state) }
       .max_by(&:submitted_at)
 
-    latest_backend_comment = comments
-      .select { |c| backend_members.include?(c.user) }
-      .max_by(&:commented_at)
+    # Latest BE feedback from EITHER PR conversation comments OR line-level
+    # review comments. Line comments (e.g. ⚠️/❗ on specific code) are real
+    # actionable feedback even when the reviewer didn't formally CR.
+    backend_conversation_comments = comments.select { |c| backend_members.include?(c.user) }
+    backend_review_comments = review_comments.select { |c| backend_members.include?(c.user) }
+
+    latest_backend_comment_at = [
+      backend_conversation_comments.map(&:commented_at),
+      backend_review_comments.map(&:commented_at)
+    ].flatten.compact.max
+
+    latest_backend_comment = if latest_backend_comment_at
+      ((backend_conversation_comments + backend_review_comments)
+        .find { |c| c.commented_at == latest_backend_comment_at })
+    end
 
     # Pick whichever backend feedback is more recent (review or comment)
     review_time = latest_backend_review&.submitted_at
@@ -525,7 +539,11 @@ class PullRequest < ApplicationRecord
       .select { |r| actionable_states.include?(r.state) }
       .max_by(&:submitted_at)
 
-    latest_comment = pull_request_comments.to_a
+    # Include both PR conversation comments and line-level review comments —
+    # a BE reviewer's ⚠️ on line 42 is just as much "reviewer activity" as a
+    # top-level comment.
+    all_comments = pull_request_comments.to_a + pull_request_review_comments.to_a
+    latest_comment = all_comments
       .reject { |c| c.user == author }
       .max_by(&:commented_at)
 

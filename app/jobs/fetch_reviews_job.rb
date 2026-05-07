@@ -63,6 +63,10 @@ class FetchReviewsJob < ApplicationJob
           # Fetch PR comments (issue comments) from GitHub
           fetch_pr_comments(pr, github_service)
 
+          # Fetch line-level review comments — needed to detect actionable
+          # BE feedback that wasn't a formal CHANGES_REQUESTED review.
+          fetch_pr_review_comments(pr, github_service)
+
           # Update approval status
           old_status = pr.backend_approval_status
           pr.update_backend_approval_status!
@@ -131,5 +135,35 @@ class FetchReviewsJob < ApplicationJob
     pr.pull_request_comments.where.not(id: comment_ids_to_keep).destroy_all if comment_ids_to_keep.any?
   rescue => e
     Rails.logger.warn "[FetchReviewsJob] Failed to fetch comments for PR ##{pr.number}: #{e.message}"
+  end
+
+  def fetch_pr_review_comments(pr, github_service)
+    comments = github_service.pull_request_review_comments(pr.number)
+    return if comments.empty?
+
+    # Keep the last 30 — review threads can be longer than PR conversation.
+    recent = comments.last(30)
+    existing_ids = pr.pull_request_review_comments.pluck(:github_id)
+
+    recent.each do |c|
+      next if existing_ids.include?(c.id)
+
+      PullRequestReviewComment.create!(
+        pull_request_id: pr.id,
+        github_id: c.id,
+        pull_request_review_id: c.pull_request_review_id,
+        user: c.user.login,
+        body: c.body&.truncate(500),
+        path: c.path,
+        line: c.line || c.original_line,
+        commented_at: c.created_at
+      )
+    end
+
+    # Trim to last 30 to bound storage.
+    keep_ids = pr.pull_request_review_comments.order(commented_at: :desc).limit(30).pluck(:id)
+    pr.pull_request_review_comments.where.not(id: keep_ids).destroy_all if keep_ids.any?
+  rescue => e
+    Rails.logger.warn "[FetchReviewsJob] Failed to fetch review comments for PR ##{pr.number}: #{e.message}"
   end
 end

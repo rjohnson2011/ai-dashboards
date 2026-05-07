@@ -34,13 +34,13 @@ class BuildReviewsPayloadService
 
     open_pull_requests = base_scope.open
       .where(backend_approval_status: "not_approved")
-      .includes(:pull_request_reviews, :pull_request_comments)
+      .includes(:pull_request_reviews, :pull_request_comments, :pull_request_review_comments)
       .order(pr_updated_at: :desc)
       .limit(150)
 
     approved_pull_requests = base_scope.open
       .where(backend_approval_status: "approved")
-      .includes(:pull_request_reviews, :pull_request_comments)
+      .includes(:pull_request_reviews, :pull_request_comments, :pull_request_review_comments)
       .order(pr_updated_at: :desc)
       .limit(100)
 

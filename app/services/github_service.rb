@@ -119,6 +119,17 @@ class GithubService
     []
   end
 
+  def pull_request_review_comments(pr_number)
+    # Line-level review comments (the threaded ⚠️/❗ feedback inside reviews).
+    # Distinct from issue_comments (PR conversation) and reviews (formal
+    # APPROVE/CHANGES_REQUESTED). These are what reviewers leave when they
+    # say "this method needs refactoring" without formally requesting changes.
+    @client.pull_request_comments("#{@owner}/#{@repo}", pr_number)
+  rescue Octokit::Error => e
+    Rails.logger.error "GitHub API Error fetching review comments: #{e.message}"
+    []
+  end
+
   def pull_request_with_reviews(pr_number)
     pr = @client.pull_request("#{@owner}/#{@repo}", pr_number)
     reviews = pull_request_reviews(pr_number)

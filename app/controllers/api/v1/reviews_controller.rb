@@ -53,14 +53,14 @@ class Api::V1::ReviewsController < ApplicationController
         # Eager load associations to avoid N+1 queries (critical for cross-region DB latency)
         open_pull_requests = base_scope.open
           .where(backend_approval_status: "not_approved")
-          .includes(:pull_request_reviews, :pull_request_comments)
+          .includes(:pull_request_reviews, :pull_request_comments, :pull_request_review_comments)
           .order(pr_updated_at: :desc)
           .limit(150) # Cap at 150 PRs to prevent memory issues
 
         # Fetch backend approved PRs separately
         approved_pull_requests = base_scope.open
           .where(backend_approval_status: "approved")
-          .includes(:pull_request_reviews, :pull_request_comments)
+          .includes(:pull_request_reviews, :pull_request_comments, :pull_request_review_comments)
           .order(pr_updated_at: :desc)
           .limit(100) # Cap at 100 approved PRs
 

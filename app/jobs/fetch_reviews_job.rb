@@ -93,6 +93,10 @@ class FetchReviewsJob < ApplicationJob
     scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
     Rails.cache.write(scrape_key, Time.current.to_i, expires_in: 24.hours)
 
+    # Pre-build the /api/v1/reviews JSON payload so the controller can return
+    # it instantly on the next request instead of doing a 1-2s DB traversal.
+    RefreshReviewsCacheService.call
+
     Rails.logger.info "[FetchReviewsJob] Completed. Updated #{updated_count} PRs, #{errors.count} errors"
 
     { updated: updated_count, errors: errors.count }

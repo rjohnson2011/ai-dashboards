@@ -143,6 +143,10 @@ class FetchAllPullRequestsJob < ApplicationJob
     Rails.cache.write(scrape_key, Time.current.to_i, expires_in: 24.hours)
     Rails.logger.info "[FetchAllPullRequestsJob] Updated scrape timestamp: #{scrape_key}"
 
+    # Pre-build the /api/v1/reviews JSON payload so the controller can return
+    # it instantly on the next request instead of doing a 1-2s DB traversal.
+    RefreshReviewsCacheService.call
+
     Rails.logger.info "[FetchAllPullRequestsJob] Completed full PR update"
 
   rescue => e

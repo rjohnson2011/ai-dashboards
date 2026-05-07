@@ -8,6 +8,21 @@ class Api::V1::ReviewsController < ApplicationController
       repository_name = params[:repository_name]
       repository_owner = params[:repository_owner]
 
+      # Fast path: scraper jobs prebuild the "all repos" payload after every
+      # scrape and stash it in Rails.cache. When the request matches that
+      # shape (no repo filter), we can return it without touching the DB.
+      if repository_name.blank? && repository_owner.blank?
+        prebuilt = Rails.cache.read(RefreshReviewsCacheService::CACHE_KEY)
+        if prebuilt
+          render json: prebuilt.merge(
+            updating: (Rails.cache.read("refresh_status") || {})[:updating] || false,
+            rate_limit: nil,
+            api_calls_used: 0
+          )
+          return
+        end
+      end
+
       # Cache key includes the last scrape timestamp - cache invalidates when scraper runs
       # This ensures fresh data after each 15-min scrape while avoiding redundant DB queries
       # When no specific repo is requested, use the vets-api scrape timestamp (main repo)

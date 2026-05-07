@@ -87,6 +87,12 @@ class FetchReviewsJob < ApplicationJob
       GC.start(full_mark: false, immediate_sweep: true)
     end
 
+    # Bump the scrape timestamp so the reviews controller's cache invalidates.
+    # Without this, fresh reviews/approvals won't surface in /api/v1/reviews
+    # until the FetchAllPullRequestsJob runs (or 2-hour cache TTL passes).
+    scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
+    Rails.cache.write(scrape_key, Time.current.to_i, expires_in: 24.hours)
+
     Rails.logger.info "[FetchReviewsJob] Completed. Updated #{updated_count} PRs, #{errors.count} errors"
 
     { updated: updated_count, errors: errors.count }

@@ -75,6 +75,10 @@ class FetchCiChecksJob < ApplicationJob
       GC.start(full_mark: false, immediate_sweep: true)
     end
 
+    # Bump the scrape timestamp so the reviews controller's cache invalidates.
+    scrape_key = "last_scrape:#{repository_owner}:#{repository_name}"
+    Rails.cache.write(scrape_key, Time.current.to_i, expires_in: 24.hours)
+
     Rails.logger.info "[FetchCiChecksJob] Completed. Updated #{updated_count} PRs, #{errors.count} errors"
 
     { updated: updated_count, errors: errors.count }

@@ -570,6 +570,7 @@ module Api
             repository: "#{repo_owner}/#{repo_name}",
             updated: result[:updated],
             errors: result[:errors],
+            pr_ids_count: result[:pr_ids_count],
             duration_seconds: (Time.current - started_at).round(2)
           }
         rescue => e

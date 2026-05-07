@@ -103,7 +103,7 @@ class FetchReviewsJob < ApplicationJob
 
     Rails.logger.info "[FetchReviewsJob] Completed. Updated #{updated_count} PRs, #{errors.count} errors"
 
-    { updated: updated_count, errors: errors.count }
+    { updated: updated_count, errors: errors.count, pr_ids_count: pr_ids.count }
   end
 
   private

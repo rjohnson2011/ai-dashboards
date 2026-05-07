@@ -143,27 +143,43 @@ class FetchReviewsJob < ApplicationJob
 
     # Keep the last 30 — review threads can be longer than PR conversation.
     recent = comments.last(30)
-    existing_ids = pr.pull_request_review_comments.pluck(:github_id)
+    existing_ids = pr.pull_request_review_comments.pluck(:github_id).to_set
+
+    persisted = 0
+    skipped = 0
+    failed = 0
 
     recent.each do |c|
       next if existing_ids.include?(c.id)
 
-      PullRequestReviewComment.create!(
-        pull_request_id: pr.id,
-        github_id: c.id,
-        pull_request_review_id: c.pull_request_review_id,
-        user: c.user.login,
-        body: c.body&.truncate(500),
-        path: c.path,
-        line: c.line || c.original_line,
-        commented_at: c.created_at
-      )
+      begin
+        PullRequestReviewComment.create!(
+          pull_request_id: pr.id,
+          github_id: c.id,
+          pull_request_review_id: c.pull_request_review_id,
+          user: c.user&.login || "ghost",
+          body: c.body&.truncate(500),
+          path: c.path,
+          line: c.line || c.original_line,
+          commented_at: c.created_at
+        )
+        persisted += 1
+      rescue ActiveRecord::RecordNotUnique
+        skipped += 1
+      rescue StandardError => e
+        failed += 1
+        Rails.logger.warn "[FetchReviewsJob] PR ##{pr.number} review-comment ##{c.id} failed: #{e.class}: #{e.message}"
+      end
+    end
+
+    if persisted > 0 || failed > 0
+      Rails.logger.info "[FetchReviewsJob] PR ##{pr.number} review-comments: persisted=#{persisted} skipped=#{skipped} failed=#{failed}"
     end
 
     # Trim to last 30 to bound storage.
     keep_ids = pr.pull_request_review_comments.order(commented_at: :desc).limit(30).pluck(:id)
     pr.pull_request_review_comments.where.not(id: keep_ids).destroy_all if keep_ids.any?
-  rescue => e
-    Rails.logger.warn "[FetchReviewsJob] Failed to fetch review comments for PR ##{pr.number}: #{e.message}"
+  rescue StandardError => e
+    Rails.logger.warn "[FetchReviewsJob] Failed to fetch review comments for PR ##{pr.number}: #{e.class}: #{e.message}"
   end
 end

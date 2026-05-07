@@ -38,7 +38,6 @@ Rails.application.routes.draw do
       post "admin/verify_pr_accuracy", to: "admin#verify_pr_accuracy"
       post "admin/remove_repository_prs", to: "admin#remove_repository_prs"
       post "admin/fetch_reviews", to: "admin#fetch_reviews"
-      post "admin/fetch_review_comments_one", to: "admin#fetch_review_comments_one"
       post "admin/backfill_reviews", to: "admin#backfill_reviews"
       post "admin/fetch_ci_checks", to: "admin#fetch_ci_checks"
       post "admin/run_migrations", to: "admin#run_migrations"

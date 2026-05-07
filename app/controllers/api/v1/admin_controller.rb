@@ -808,54 +808,6 @@ module Api
         }
       end
 
-      def fetch_review_comments_one
-        unless params[:token] == ENV["ADMIN_TOKEN"]
-          render json: { error: "Unauthorized" }, status: :unauthorized
-          return
-        end
-
-        pr = PullRequest.find_by(number: params[:pr_number].to_i)
-        return render(json: { error: "Not found" }, status: :not_found) unless pr
-
-        gh = GithubService.new(owner: pr.repository_owner, repo: pr.repository_name)
-        begin
-          raw = gh.pull_request_review_comments(pr.number)
-          summary = raw.first(5).map do |c|
-            {
-              id: c.id, user: c.user&.login, path: c.path, line: c.line,
-              body_preview: c.body&.truncate(80), created_at: c.created_at
-            }
-          end
-
-          # Try persisting one
-          first = raw.first
-          persisted_error = nil
-          if first
-            begin
-              PullRequestReviewComment.find_or_create_by!(github_id: first.id) do |row|
-                row.pull_request_id = pr.id
-                row.user = first.user.login
-                row.body = first.body&.truncate(500)
-                row.path = first.path
-                row.line = first.line || first.original_line
-                row.commented_at = first.created_at
-                row.pull_request_review_id = first.pull_request_review_id
-              end
-            rescue StandardError => e
-              persisted_error = "#{e.class}: #{e.message}"
-            end
-          end
-
-          render json: {
-            pr_number: pr.number, raw_count: raw.size, sample: summary,
-            persisted_error: persisted_error,
-            db_count_after: pr.pull_request_review_comments.count
-          }
-        rescue StandardError => e
-          render json: { error: e.message, error_class: e.class.name, backtrace: e.backtrace&.first(5) }, status: :internal_server_error
-        end
-      end
-
       def run_migrations
         unless params[:token] == ENV["ADMIN_TOKEN"]
           render json: { error: "Unauthorized" }, status: :unauthorized

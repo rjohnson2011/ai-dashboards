@@ -295,43 +295,37 @@ class PullRequest < ApplicationRecord
   end
 
   def calculate_awaiting_author_changes
-    # PR is awaiting author changes if:
-    # 1. Someone has requested changes (CHANGES_REQUESTED state)
-    # 2. AND the author hasn't pushed new commits since that review
+    # PR is awaiting author changes when:
+    # 1. A backend reviewer has requested changes (latest review state),
+    # 2. That reviewer has not since approved, AND
+    # 3. The PR author has not posted a review or comment after the request.
     #
-    # Once author pushes new commits, it goes back to "ready for review"
+    # We use the actual reviews/comments timeline rather than `pr_updated_at`,
+    # which gets bumped by unrelated edits (labels, title, syncs).
+    backend_members = BackendReviewGroupMember.cached_usernames
+    reviews = pull_request_reviews.to_a
+    comments = pull_request_comments.to_a
 
-    # Get the latest CHANGES_REQUESTED review
-    latest_changes_requested = pull_request_reviews
-      .where(state: PullRequestReview::CHANGES_REQUESTED)
-      .order(submitted_at: :desc)
-      .first
+    # Latest CHANGES_REQUESTED from a backend reviewer.
+    latest_cr = reviews
+      .select { |r| r.state == PullRequestReview::CHANGES_REQUESTED && backend_members.include?(r.user) }
+      .max_by(&:submitted_at)
+    return false unless latest_cr
 
-    return false unless latest_changes_requested
-
-    # Check if the reviewer who requested changes has since approved
-    later_approval_from_same_user = pull_request_reviews
-      .where(user: latest_changes_requested.user)
-      .where(state: PullRequestReview::APPROVED)
-      .where("submitted_at > ?", latest_changes_requested.submitted_at)
-      .exists?
-
-    return false if later_approval_from_same_user
-
-    # Check if pr_updated_at is after the changes_requested review
-    # This indicates the author has made updates (pushed commits, responded, etc.)
-    if pr_updated_at && pr_updated_at > latest_changes_requested.submitted_at
-      # PR was updated after changes were requested
-      # Check if head_sha changed (indicates new commits)
-      # We'll use pr_updated_at as a proxy - if it's significantly later, assume author responded
-      time_since_review = pr_updated_at - latest_changes_requested.submitted_at
-
-      # If more than 5 minutes passed and PR was updated, author likely responded
-      # This is a heuristic - ideally we'd check commit timestamps
-      return false if time_since_review > 5.minutes
+    # If that same reviewer approved after their CR, they're satisfied.
+    later_approval = reviews.any? do |r|
+      r.user == latest_cr.user &&
+        r.state == PullRequestReview::APPROVED &&
+        r.submitted_at > latest_cr.submitted_at
     end
+    return false if later_approval
 
-    # Still awaiting author changes
+    # If the author posted a review or comment after the CR, the ball's
+    # back in the reviewer's court — not awaiting author anymore.
+    author_review_after = reviews.any? { |r| r.user == author && r.submitted_at > latest_cr.submitted_at }
+    author_comment_after = comments.any? { |c| c.user == author && c.commented_at > latest_cr.submitted_at }
+    return false if author_review_after || author_comment_after
+
     true
   end
 
@@ -447,20 +441,17 @@ class PullRequest < ApplicationRecord
       end
     end
 
-    # Find the latest CHANGES_REQUESTED or COMMENTED review from a backend team member
-    # We consider COMMENTED reviews as implicit change requests since reviewers often
-    # leave feedback without formally requesting changes
-    latest_backend_review = pull_request_reviews
-      .where(user: backend_members)
-      .where(state: [ "CHANGES_REQUESTED", "COMMENTED" ])
-      .order(submitted_at: :desc)
-      .first
+    # Find the latest CHANGES_REQUESTED or COMMENTED review from a backend team member.
+    # COMMENTED reviews count as implicit change requests since reviewers often leave
+    # feedback without formally requesting changes.
+    comments = pull_request_comments.to_a
+    latest_backend_review = reviews
+      .select { |r| backend_members.include?(r.user) && %w[CHANGES_REQUESTED COMMENTED].include?(r.state) }
+      .max_by(&:submitted_at)
 
-    # Also check regular PR comments from backend team members
-    latest_backend_comment = pull_request_comments
-      .where(user: backend_members)
-      .order(commented_at: :desc)
-      .first
+    latest_backend_comment = comments
+      .select { |c| backend_members.include?(c.user) }
+      .max_by(&:commented_at)
 
     # Pick whichever backend feedback is more recent (review or comment)
     review_time = latest_backend_review&.submitted_at
@@ -477,28 +468,24 @@ class PullRequest < ApplicationRecord
     end
 
     # Check if there's been an APPROVED review from the same backend member after their feedback
-    later_approval = pull_request_reviews
-      .where(user: latest_feedback_user)
-      .where(state: "APPROVED")
-      .where("submitted_at > ?", latest_feedback_at)
-      .exists?
+    later_approval = reviews.any? do |r|
+      r.user == latest_feedback_user &&
+        r.state == "APPROVED" &&
+        r.submitted_at > latest_feedback_at
+    end
 
     # If the reviewer approved after their feedback, don't show as changes requested
     return nil if later_approval
 
     # Check if there's a newer response from the PR author after the backend feedback
     # Look at both author reviews and author comments
-    author_review_after = pull_request_reviews
-      .where(user: author)
-      .where("submitted_at > ?", latest_feedback_at)
-      .order(submitted_at: :desc)
-      .first
+    author_review_after = reviews
+      .select { |r| r.user == author && r.submitted_at > latest_feedback_at }
+      .max_by(&:submitted_at)
 
-    author_comment_after = pull_request_comments
-      .where(user: author)
-      .where("commented_at > ?", latest_feedback_at)
-      .order(commented_at: :desc)
-      .first
+    author_comment_after = comments
+      .select { |c| c.user == author && c.commented_at > latest_feedback_at }
+      .max_by(&:commented_at)
 
     # Pick the most recent author response (review or comment)
     author_response_at = [ author_review_after&.submitted_at, author_comment_after&.commented_at ].compact.max

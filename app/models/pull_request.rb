@@ -401,25 +401,25 @@ class PullRequest < ApplicationRecord
   def changes_requested_info
     # Get backend team members
     backend_members = BackendReviewGroupMember.cached_usernames
+    reviews = pull_request_reviews.to_a
 
     # Check for commits after backend approval (new logic)
     if has_commits_after_backend_approval?
-      last_backend_approval = pull_request_reviews
-        .where(state: PullRequestReview::APPROVED)
-        .where(user: backend_members)
-        .order(submitted_at: :desc)
-        .first
+      last_backend_approval = reviews
+        .select { |r| r.state == PullRequestReview::APPROVED && backend_members.include?(r.user) }
+        .max_by(&:submitted_at)
 
       return {
         status: "new_commits_after_approval",
         message: "New commits by author",
-        backend_approver: last_backend_approval.user,
-        approved_at: last_backend_approval.submitted_at
+        backend_approver: last_backend_approval&.user,
+        approved_at: last_backend_approval&.submitted_at
       }
     end
 
     # Check for ANY DISMISSED reviews (indicates new commits invalidated previous approvals)
-    has_dismissed_reviews = pull_request_reviews.where(state: "DISMISSED").exists?
+    dismissed_reviews = reviews.select { |r| r.state == "DISMISSED" }
+    has_dismissed_reviews = dismissed_reviews.any?
 
     # If there are dismissed reviews AND current non-backend approvals AND backend has commented/reviewed,
     # this means the author pushed new commits after backend review that need re-review
@@ -431,15 +431,14 @@ class PullRequest < ApplicationRecord
                                    current_approvals[:approved_users].none? { |u| backend_members.include?(u) }
 
       # Check if backend has reviewed (commented or changes requested) but not approved yet
-      backend_has_reviewed = pull_request_reviews
-        .where(user: backend_members)
-        .where(state: [ "COMMENTED", "CHANGES_REQUESTED" ])
-        .exists?
+      backend_has_reviewed = reviews.any? do |r|
+        backend_members.include?(r.user) && %w[COMMENTED CHANGES_REQUESTED].include?(r.state)
+      end
 
       backend_not_approved = backend_approval_status != "approved"
 
       if has_non_backend_approvals && backend_has_reviewed && backend_not_approved
-        last_dismissed = pull_request_reviews.where(state: "DISMISSED").order(submitted_at: :desc).first
+        last_dismissed = dismissed_reviews.max_by(&:submitted_at)
         return {
           status: "new_commit_from_author",
           message: "New Commit From Author",
@@ -530,18 +529,16 @@ class PullRequest < ApplicationRecord
   def latest_reviewer_activity
     backend_members = BackendReviewGroupMember.cached_usernames
 
-    # Get latest review from non-author (prioritize changes requested)
-    latest_review = pull_request_reviews
-      .where.not(user: author)
-      .where(state: %w[CHANGES_REQUESTED COMMENTED APPROVED])
-      .order(submitted_at: :desc)
-      .first
+    # Use the eager-loaded associations to avoid N+1 queries.
+    actionable_states = %w[CHANGES_REQUESTED COMMENTED APPROVED]
+    latest_review = pull_request_reviews.to_a
+      .reject { |r| r.user == author }
+      .select { |r| actionable_states.include?(r.state) }
+      .max_by(&:submitted_at)
 
-    # Get latest comment from non-author
-    latest_comment = pull_request_comments
-      .where.not(user: author)
-      .order(commented_at: :desc)
-      .first
+    latest_comment = pull_request_comments.to_a
+      .reject { |c| c.user == author }
+      .max_by(&:commented_at)
 
     # Determine which is more recent
     review_time = latest_review&.submitted_at

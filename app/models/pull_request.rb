@@ -467,15 +467,17 @@ class PullRequest < ApplicationRecord
       return nil
     end
 
-    # Check if there's been an APPROVED review from the same backend member after their feedback
-    later_approval = reviews.any? do |r|
-      r.user == latest_feedback_user &&
+    # If any backend reviewer has approved after the feedback, the request is
+    # superseded — don't show stale changes-requested info. The same-user
+    # approval check is a subset of this, but we also need to handle cases
+    # where a different BE reviewer reviews and approves (e.g. Rebecca leaves
+    # comments on Apr 13, Rachal approves on Apr 14 — Rebecca's note is stale).
+    later_be_approval = reviews.any? do |r|
+      backend_members.include?(r.user) &&
         r.state == "APPROVED" &&
         r.submitted_at > latest_feedback_at
     end
-
-    # If the reviewer approved after their feedback, don't show as changes requested
-    return nil if later_approval
+    return nil if later_be_approval
 
     # Check if there's a newer response from the PR author after the backend feedback
     # Look at both author reviews and author comments

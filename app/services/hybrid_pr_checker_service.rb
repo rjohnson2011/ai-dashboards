@@ -236,8 +236,11 @@ class HybridPrCheckerService
       "Require backend-review-group approval"
     when "Get PR Data", "Check Backend Requirement", "Check Workflow Statuses", "Fetch Pull Request Reviews"
       "Pull Request Ready for Review"
-    when /Analyze \(ruby\)/, /Analyze \(javascript\)/
-      "CodeQL"
+    when /\AAnalyze \(/
+      # Keep the language variant so multiple CodeQL failures don't dedup.
+      # E.g. "Analyze (ruby)" → "CodeQL (ruby)", "Analyze (javascript-typescript)"
+      # → "CodeQL (javascript-typescript)".
+      check_name.sub(/\AAnalyze /, "CodeQL ")
     when "label"
       "PR Labeler"
     when "Danger"

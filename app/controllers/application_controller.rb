@@ -14,7 +14,20 @@ class ApplicationController < ActionController::API
 
   def require_google_auth!
     token = bearer_token
-    @current_user = GoogleTokenVerifier.call(token)
+
+    if SessionTokenService.api_token?(token)
+      payload = SessionTokenService.verify(SessionTokenService.strip_prefix(token))
+      @current_user = GoogleTokenVerifier::Result.new(
+        email: payload["email"],
+        name: payload["name"],
+        picture: payload["picture"],
+        sub: payload["sub"]
+      )
+    else
+      @current_user = GoogleTokenVerifier.call(token)
+    end
+  rescue SessionTokenService::InvalidToken => e
+    render json: { error: "Unauthorized", reason: e.message }, status: :unauthorized
   rescue GoogleTokenVerifier::DisallowedDomain => e
     render json: { error: "Forbidden", reason: e.message }, status: :forbidden
   rescue GoogleTokenVerifier::InvalidToken, Google::Auth::Error => e

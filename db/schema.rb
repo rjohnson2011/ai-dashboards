@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_01_26_183046) do
+ActiveRecord::Schema[8.0].define(version: 2026_06_01_185148) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -88,6 +88,20 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_26_183046) do
     t.index ["snapshot_date", "repository_owner", "repository_name"], name: "index_daily_snapshots_on_date_and_repository", unique: true
   end
 
+  create_table "login_events", force: :cascade do |t|
+    t.string "email", null: false
+    t.string "name"
+    t.string "picture"
+    t.datetime "logged_in_at", null: false
+    t.string "ip_address"
+    t.string "user_agent"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email", "logged_in_at"], name: "index_login_events_on_email_and_logged_in_at"
+    t.index ["email"], name: "index_login_events_on_email"
+    t.index ["logged_in_at"], name: "index_login_events_on_logged_in_at"
+  end
+
   create_table "pull_request_comments", force: :cascade do |t|
     t.bigint "pull_request_id", null: false
     t.bigint "github_id", null: false
@@ -99,6 +113,22 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_26_183046) do
     t.index ["github_id"], name: "index_pull_request_comments_on_github_id", unique: true
     t.index ["pull_request_id", "commented_at"], name: "idx_on_pull_request_id_commented_at_9baa8e17dc"
     t.index ["pull_request_id"], name: "index_pull_request_comments_on_pull_request_id"
+  end
+
+  create_table "pull_request_review_comments", force: :cascade do |t|
+    t.bigint "pull_request_id", null: false
+    t.bigint "github_id", null: false
+    t.bigint "pull_request_review_id"
+    t.string "user", null: false
+    t.text "body"
+    t.string "path"
+    t.integer "line"
+    t.datetime "commented_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["github_id"], name: "index_pull_request_review_comments_on_github_id", unique: true
+    t.index ["pull_request_id", "commented_at"], name: "idx_on_pull_request_id_commented_at_4311c003c2"
+    t.index ["pull_request_id"], name: "index_pull_request_review_comments_on_pull_request_id"
   end
 
   create_table "pull_request_reviews", force: :cascade do |t|

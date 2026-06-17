@@ -412,6 +412,30 @@ class PullRequest < ApplicationRecord
       }
     end
 
+    # A backend reviewer's approval was DISMISSED (commonly because the author
+    # merged master/main into the branch, which dismisses stale approvals) and
+    # there is no current backend approval. The PR needs a re-review — it should
+    # show up as Ready for Review again, not sit in Open. This is distinct from
+    # the branch below, which only fires when a NON-backend approval is present.
+    if backend_approval_status != "approved"
+      latest_actionable_by_user = reviews
+        .group_by(&:user)
+        .transform_values { |rs| rs.reject { |r| r.state == PullRequestReview::COMMENTED }.max_by(&:submitted_at) }
+        .compact
+      dismissed_backend = latest_actionable_by_user
+        .select { |user, r| backend_members.include?(user) && r.state == "DISMISSED" }
+        .values
+      if dismissed_backend.any?
+        last_dismissed_backend = dismissed_backend.max_by(&:submitted_at)
+        return {
+          status: "backend_approval_dismissed",
+          message: "Backend approval dismissed — needs re-review",
+          backend_reviewer: last_dismissed_backend.user,
+          dismissed_at: last_dismissed_backend.submitted_at
+        }
+      end
+    end
+
     # Check for ANY DISMISSED reviews (indicates new commits invalidated previous approvals)
     dismissed_reviews = reviews.select { |r| r.state == "DISMISSED" }
     has_dismissed_reviews = dismissed_reviews.any?

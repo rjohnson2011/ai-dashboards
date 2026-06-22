@@ -29,6 +29,7 @@ Rails.application.routes.draw do
       get "admin/debug_token", to: "admin#debug_token"
       get "admin/cron_status", to: "admin#cron_status"
       post "admin/run_task", to: "admin#run_task"
+      get "admin/login_activity", to: "admin#login_activity"
       post "admin/manual_scraper_run", to: "admin#manual_scraper_run"
       get "admin/verify_scraper_version", to: "admin#verify_scraper_version"
       get "admin/backend_members", to: "admin#backend_members"

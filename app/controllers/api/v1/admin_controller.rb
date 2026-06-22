@@ -1020,6 +1020,61 @@ module Api
           total: SupportRotation.count
         }
       end
+
+      # GET /api/v1/admin/login_activity?token=...&days=7
+      # Who logged in, on which days, and how often, over the last N days.
+      def login_activity
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        days = (params[:days].presence || 7).to_i.clamp(1, 365)
+        since = days.days.ago
+        events = LoginEvent.where("logged_in_at >= ?", since)
+
+        # Per-user summary: total logins, distinct active days, last seen.
+        per_user = events.group(:email).order(Arel.sql("COUNT(*) DESC")).count
+        last_seen = events.group(:email).maximum(:logged_in_at)
+        names = events.where.not(name: nil).group(:email).maximum(:name)
+        active_days = events
+          .group(:email)
+          .distinct
+          .count(Arel.sql("DATE(logged_in_at)"))
+
+        users = per_user.map do |email, total|
+          {
+            email: email,
+            name: names[email],
+            total_logins: total,
+            active_days: active_days[email],
+            last_login_at: last_seen[email]
+          }
+        end
+
+        # Per-day breakdown: logins and distinct users each day.
+        logins_by_day = events.group(Arel.sql("DATE(logged_in_at)")).count
+        users_by_day = events
+          .group(Arel.sql("DATE(logged_in_at)"))
+          .distinct
+          .count(:email)
+        by_day = logins_by_day.keys.sort.reverse.map do |day|
+          {
+            date: day,
+            logins: logins_by_day[day],
+            distinct_users: users_by_day[day]
+          }
+        end
+
+        render json: {
+          window_days: days,
+          since: since,
+          total_logins: events.count,
+          distinct_users: events.distinct.count(:email),
+          users: users,
+          by_day: by_day
+        }
+      end
     end
   end
 end

@@ -6,6 +6,11 @@ module Api
       # Admin endpoints are gated by their own ADMIN_TOKEN check inline.
       skip_before_action :require_google_auth!
 
+      # trigger_scraper is meant to be called from the dashboard by a logged-in
+      # user, so it uses normal session auth (the user's existing token) instead
+      # of the shared ADMIN_TOKEN — no admin secret needs to reach the browser.
+      before_action :require_google_auth!, only: [ :trigger_scraper ]
+
       def initialize_data
         # Simple auth check - you should use a proper admin auth in production
         unless params[:token] == ENV["ADMIN_TOKEN"]
@@ -1019,6 +1024,45 @@ module Api
           created: created,
           total: SupportRotation.count
         }
+      end
+
+      # Session-authed "rerun scraper" trigger for the dashboard button.
+      #
+      # Runs the same scraper job as the cron / manual_scraper_run, but is gated
+      # by the logged-in user's session token (see the before_action above)
+      # rather than ADMIN_TOKEN — so no admin secret is exposed to the frontend.
+      # The job runs inline (the :async adapter loses jobs on free-tier restarts);
+      # the frontend fires this without blocking and lets auto-refresh surface the
+      # results, so a long run doesn't tie up the UI.
+      def trigger_scraper
+        repo_name = params[:repository_name] || ENV["GITHUB_REPO"] || "vets-api"
+        repo_owner = params[:repository_owner] || ENV["GITHUB_OWNER"] || "department-of-veterans-affairs"
+
+        Rails.logger.info "[AdminController] Dashboard scraper rerun triggered by #{current_user&.email} for #{repo_owner}/#{repo_name}"
+
+        started_at = Time.current
+        begin
+          FetchAllPullRequestsJob.perform_now(
+            repository_name: repo_name,
+            repository_owner: repo_owner
+          )
+
+          render json: {
+            success: true,
+            message: "Scraper completed successfully",
+            repository: "#{repo_owner}/#{repo_name}",
+            started_at: started_at,
+            completed_at: Time.current,
+            duration_seconds: (Time.current - started_at).round(2)
+          }
+        rescue => e
+          Rails.logger.error "[AdminController] Dashboard scraper rerun failed: #{e.message}"
+          render json: {
+            success: false,
+            message: "Scraper failed: #{e.message}",
+            repository: "#{repo_owner}/#{repo_name}"
+          }, status: :internal_server_error
+        end
       end
     end
   end

@@ -30,6 +30,7 @@ Rails.application.routes.draw do
       get "admin/cron_status", to: "admin#cron_status"
       post "admin/run_task", to: "admin#run_task"
       post "admin/manual_scraper_run", to: "admin#manual_scraper_run"
+      post "admin/trigger_scraper", to: "admin#trigger_scraper"
       get "admin/verify_scraper_version", to: "admin#verify_scraper_version"
       get "admin/backend_members", to: "admin#backend_members"
       post "admin/refresh_backend_members", to: "admin#refresh_backend_members"

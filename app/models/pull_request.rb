@@ -505,17 +505,19 @@ class PullRequest < ApplicationRecord
       return nil
     end
 
-    # If any backend reviewer has approved after the feedback, the request is
-    # superseded — don't show stale changes-requested info. The same-user
-    # approval check is a subset of this, but we also need to handle cases
-    # where a different BE reviewer reviews and approves (e.g. Rebecca leaves
-    # comments on Apr 13, Rachal approves on Apr 14 — Rebecca's note is stale).
-    later_be_approval = reviews.any? do |r|
-      backend_members.include?(r.user) &&
-        r.state == "APPROVED" &&
+    # If ANY reviewer (backend OR non-backend teammate) approved AFTER the
+    # backend feedback, the feedback is superseded — the approval already
+    # accounts for it, so the PR is "ready", not "awaiting changes". This
+    # enforces the timing rule: a BE comment only counts as awaiting-changes
+    # when no approval came after it. (e.g. Rebecca comments Apr 13, Rachal
+    # approves Apr 14 → stale; or BE comments before a teammate's approval →
+    # the approval supersedes.)
+    later_approval = reviews.any? do |r|
+      r.state == "APPROVED" &&
+        r.user != author &&
         r.submitted_at > latest_feedback_at
     end
-    return nil if later_be_approval
+    return nil if later_approval
 
     # Check if there's a newer response from the PR author after the backend feedback
     # Look at both author reviews and author comments

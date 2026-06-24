@@ -363,25 +363,20 @@ class PullRequest < ApplicationRecord
       github_service = GithubService.new(owner: repository_owner, repo: repository_name)
       commits = github_service.pull_request_commits(number)
 
-      # Check if any commits by the PR author happened after the last backend approval
-      # Exclude merge commits (merging master/main into the branch is standard practice)
+      # Check if any commits by the PR author happened after the last backend
+      # approval. We deliberately COUNT merge commits here: when the author
+      # merges master/main into the branch (commonly to resolve a merge
+      # conflict), that introduces changes the prior approval never reviewed, so
+      # the PR needs another BE approval and should bubble back to Ready for
+      # Review. (Per policy: any change after approval requires re-approval.)
       author_commits_after_approval = commits.any? do |commit|
         commit_author = commit.commit.author.name rescue commit.author&.login rescue nil
         commit_date = commit.commit.author.date rescue nil
-        commit_message = commit.commit.message rescue ""
 
-        # Skip merge commits (merging master/main into the branch)
-        is_merge_commit = commit_message.downcase.start_with?("merge branch") ||
-                          commit_message.downcase.start_with?("merge pull request") ||
-                          commit_message.downcase.include?("merge branch 'master'") ||
-                          commit_message.downcase.include?("merge branch 'main'") ||
-                          commit_message.downcase.include?("merge remote-tracking branch")
-
-        # Check if commit is by the PR author, happened after approval, and is NOT a merge commit
+        # Check if commit is by the PR author and happened after the approval.
         (commit_author == author || commit.author&.login == author) &&
           commit_date &&
-          commit_date > last_backend_approval.submitted_at &&
-          !is_merge_commit
+          commit_date > last_backend_approval.submitted_at
       end
 
       # Cache the result for 1 hour

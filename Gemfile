@@ -55,7 +55,7 @@ gem "selenium-webdriver", "~> 4.0"
 gem "webdrivers", "~> 5.0"
 
 # Playwright for accurate JavaScript rendering
-gem "playwright-ruby-client", "~> 1.40"
+gem "playwright-ruby-client", "~> 1.56"
 
 # Google ID token verification
 gem "googleauth", "~> 1.11"

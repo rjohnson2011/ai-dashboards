@@ -1,6 +1,6 @@
 class Api::V1::ReviewsController < ApplicationController
-  # Health/version endpoint is public so monitoring can hit it without auth.
-  skip_before_action :require_google_auth!, only: :version
+  # Health/version endpoints are public so monitoring can hit them without auth.
+  skip_before_action :require_google_auth!, only: %i[version sync_health]
 
   def index
     begin
@@ -298,6 +298,54 @@ class Api::V1::ReviewsController < ApplicationController
       Rails.logger.error "Error getting version: #{e.message}"
       render json: { error: "Failed to get version" }, status: :internal_server_error
     end
+  end
+
+  # Public sync-health endpoint. The dashboard renders PR data that is only as
+  # fresh as the last successful scrape, so it needs to know when that was in
+  # order to warn instead of silently presenting stale rows as current.
+  #
+  # Staleness is decided here rather than in the client so the threshold lives
+  # in one place. The scraper runs roughly every 12 minutes, so an hour without
+  # a success means several consecutive runs have failed.
+  STALE_AFTER_SECONDS = 1.hour
+
+  def sync_health
+    last_success = CronJobLog.where(status: "completed").order(started_at: :desc).first
+    last_failure = CronJobLog.where(status: "failed").order(started_at: :desc).first
+
+    # Age is measured from completed_at when present: started_at on a long run
+    # would overstate staleness.
+    synced_at = last_success&.completed_at || last_success&.started_at
+    age_seconds = synced_at ? (Time.current - synced_at).round : nil
+
+    # No successful run on record is treated as stale rather than healthy, so a
+    # fresh or wiped database fails loudly instead of looking fine.
+    stale = age_seconds.nil? || age_seconds > STALE_AFTER_SECONDS
+
+    # Consecutive failures since the last success. This is what distinguishes a
+    # one-off blip from a sustained outage like an expired token.
+    failures_since_success = if synced_at
+      CronJobLog.where(status: "failed").where("started_at > ?", synced_at).count
+    else
+      CronJobLog.where(status: "failed").count
+    end
+
+    render json: {
+      stale: stale,
+      last_synced_at: synced_at,
+      age_seconds: age_seconds,
+      stale_after_seconds: STALE_AFTER_SECONDS.to_i,
+      failures_since_success: failures_since_success,
+      last_error: last_failure && (last_failure.started_at > (synced_at || Time.at(0))) ? {
+        at: last_failure.started_at,
+        error_class: last_failure.error_class,
+        # Truncated: this surfaces in the UI and backtraces can leak internals.
+        message: last_failure.error_message&.truncate(200)
+      } : nil
+    }
+  rescue => e
+    Rails.logger.error "Error getting sync health: #{e.message}"
+    render json: { error: "Failed to get sync health" }, status: :internal_server_error
   end
 
   def show

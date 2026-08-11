@@ -132,6 +132,8 @@ class BuildReviewsPayloadService
       ready_for_backend_review: pr.ready_for_backend_review,
       awaiting_author_changes: pr.respond_to?(:awaiting_author_changes) ? pr.awaiting_author_changes : false,
       labels: pr.labels || [],
+      pending_reviewers: pr.pending_reviewers || [],
+      pending_teams: pr.pending_teams || [],
       repository_name: pr.repository_name,
       repository_owner: pr.repository_owner,
       changes_requested_info: pr.changes_requested_info,

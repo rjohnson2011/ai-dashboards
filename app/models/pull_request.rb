@@ -431,8 +431,23 @@ class PullRequest < ApplicationRecord
       end
     end
 
-    # Check for ANY DISMISSED reviews (indicates new commits invalidated previous approvals)
-    dismissed_reviews = reviews.select { |r| r.state == "DISMISSED" }
+    # Only dismissals NEWER than the latest backend approval still matter. A
+    # dismissal that a later approval superseded is already resolved, and
+    # treating it as live pins the PR in "needs re-review" forever (e.g. #29601:
+    # dismissed Jul 27-29, re-approved Aug 5, still flagged weeks later).
+    #
+    # When there is no backend approval at all, last_be_approval_at is nil and
+    # every dismissal is kept — those PRs genuinely still need review. This
+    # guard is what keeps unapproved PRs (#29631, #29627) correctly flagged.
+    last_be_approval_at = reviews
+      .select { |r| r.state == PullRequestReview::APPROVED && backend_members.include?(r.user) }
+      .filter_map(&:submitted_at)
+      .max
+
+    dismissed_reviews = reviews.select do |r|
+      r.state == "DISMISSED" &&
+        (last_be_approval_at.nil? || (r.submitted_at.present? && r.submitted_at > last_be_approval_at))
+    end
     has_dismissed_reviews = dismissed_reviews.any?
 
     # If there are dismissed reviews AND current non-backend approvals AND backend has commented/reviewed,

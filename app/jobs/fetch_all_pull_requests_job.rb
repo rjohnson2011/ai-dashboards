@@ -69,7 +69,13 @@ class FetchAllPullRequestsJob < ApplicationJob
             repository_name: repository_name || ENV["GITHUB_REPO"],
             repository_owner: repository_owner || ENV["GITHUB_OWNER"],
             labels: pr_data.labels.map(&:name),
-            head_sha: pr_data.head.sha
+            head_sha: pr_data.head.sha,
+            # Pending review requests ride along on the PR list payload, so
+            # capturing them costs no extra API calls. A pending codeowner team
+            # means the PR is still blocked on review even when it already has
+            # approvals and green CI.
+            pending_reviewers: (pr_data.requested_reviewers || []).map(&:login),
+            pending_teams: (pr_data.requested_teams || []).map(&:slug)
           )
 
           # Only fetch checks if PR changed (new commits) - saves memory & API calls
@@ -184,7 +190,11 @@ class FetchAllPullRequestsJob < ApplicationJob
           repository_name: repository_name || ENV["GITHUB_REPO"],
           repository_owner: repository_owner || ENV["GITHUB_OWNER"],
           labels: pr_data.labels.map(&:name),
-          head_sha: pr_data.head.sha
+          head_sha: pr_data.head.sha,
+          # See note above: free on the list payload, and required to tell a
+          # merge-ready PR from one still awaiting a codeowner review.
+          pending_reviewers: (pr_data.requested_reviewers || []).map(&:login),
+          pending_teams: (pr_data.requested_teams || []).map(&:slug)
         )
         processed += 1
       end

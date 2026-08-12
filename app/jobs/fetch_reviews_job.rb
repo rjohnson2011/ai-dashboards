@@ -20,9 +20,19 @@ class FetchReviewsJob < ApplicationJob
       repository_owner: repository_owner || ENV["GITHUB_OWNER"]
     }
 
-    # Fetch reviews for open PRs that aren't yet approved
+    # Fetch reviews for ALL open non-draft PRs, including already-approved ones.
+    #
+    # Approved PRs were previously skipped, which made backend_approval_status a
+    # one-way latch: an approval could be recorded, but a later DISMISSED (which
+    # GitHub issues automatically when the author pushes new commits) was never
+    # scraped, so the PR stayed "approved" forever. PR #29631 sat that way for a
+    # week — both approvals dismissed on new commits, dashboard still green,
+    # which also made it eligible for "Finished but Unmerged" while GitHub was
+    # blocking the merge.
+    #
+    # Approved PRs are a small slice of the open set (~10 of ~75), so re-scanning
+    # them costs ~10 extra API calls per run against a ~800/run budget.
     open_pr_ids = PullRequest.where(state: "open", **repo_filter)
-      .where.not(backend_approval_status: "approved")
       .where(draft: false)
       .pluck(:id)
 

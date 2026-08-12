@@ -71,5 +71,8 @@ RUN chmod +x /app/bin/render-build.sh || true
 
 EXPOSE 3000
 
-# Use Puma as the web server
-CMD ["bundle", "exec", "puma", "-C", "config/puma.rb"]
+# Migrate before booting. render.yaml's startCommand does this too, but a
+# docker-env service builds this Dockerfile and CMD wins over startCommand, so
+# without it here a deploy ships code ahead of its schema (a new column then
+# raises "unknown attribute" on every scrape until someone migrates by hand).
+CMD ["sh", "-c", "bundle exec rake db:migrate && bundle exec puma -C config/puma.rb"]

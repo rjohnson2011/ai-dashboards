@@ -17,11 +17,22 @@ class FetchAllPullRequestsJob < ApplicationJob
     open_prs = github_service.all_pull_requests(state: "open")
     Rails.logger.info "[FetchAllPullRequestsJob] Found #{open_prs.count} open PRs"
 
-    # Filter to only include PRs targeting master branch
-    master_prs = open_prs.select { |pr| pr.base.ref == "master" }
-    Rails.logger.info "[FetchAllPullRequestsJob] Filtered to #{master_prs.count} PRs targeting master branch"
+    # Include every open PR regardless of base branch.
+    #
+    # This used to keep only PRs targeting "master", which silently hid stacked
+    # PRs — ones opened against another feature branch rather than the trunk.
+    # They never reached the DB at all, so no dashboard bucket could show them
+    # and there was no indication anything had been dropped (e.g. #29928, which
+    # needed backend review but targeted a teammate's branch).
+    #
+    # Downstream handling is base-branch agnostic, and the volume is small
+    # (~5 of ~150 open vets-api PRs), so there's nothing to filter for here.
+    master_prs = open_prs
+    Rails.logger.info "[FetchAllPullRequestsJob] Processing #{master_prs.count} open PRs (all base branches)"
 
-    # Clear the open_prs array to free memory - we only need master_prs from here
+    # Drop the second reference; master_prs is the same array now that nothing
+    # is filtered out, so this frees no memory on its own — the GC pass below
+    # is still worth keeping before the per-PR work begins.
     open_prs = nil
     GC.start
 

@@ -183,6 +183,15 @@ class FetchAllPullRequestsJob < ApplicationJob
       batch.each do |pr_data|
         pr = PullRequest.find_or_initialize_by(github_id: pr_data.id)
 
+        # New commits invalidate every stored check: they belong to the previous
+        # head. Lite mode doesn't refetch checks, and Step 3 only reaches roughly
+        # half the open PRs per run (it sleeps 30s every 10 PRs), so without this
+        # a PR can display failures from a commit that is no longer its head for
+        # hours — showing red for since-fixed tests, or green for newly broken
+        # ones. Clearing them here is a local DELETE with no API cost; the row
+        # then reads as "checks pending" until the next real fetch populates it.
+        head_changed = pr.persisted? && pr.head_sha.present? && pr.head_sha != pr_data.head.sha
+
         if pr.new_record?
           pr.repository_name = repository_name || ENV["GITHUB_REPO"]
           pr.repository_owner = repository_owner || ENV["GITHUB_OWNER"]
@@ -207,6 +216,14 @@ class FetchAllPullRequestsJob < ApplicationJob
           pending_reviewers: (pr_data.requested_reviewers || []).map(&:login),
           pending_teams: (pr_data.requested_teams || []).map(&:slug)
         )
+
+        if head_changed
+          pr.check_runs.destroy_all
+          Rails.cache.delete("pr_#{pr.id}_failing_checks")
+          pr.update!(ci_status: "pending", total_checks: 0, successful_checks: 0, failed_checks: 0)
+          Rails.logger.info "[FetchAllPullRequestsJob] PR ##{pr.number}: new head, cleared stale checks"
+        end
+
         processed += 1
       end
       GC.start(full_mark: false, immediate_sweep: true)

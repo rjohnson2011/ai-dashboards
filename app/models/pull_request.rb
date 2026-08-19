@@ -364,12 +364,22 @@ class PullRequest < ApplicationRecord
       commits = github_service.pull_request_commits(number)
 
       # Check if any commits by the PR author happened after the last backend
-      # approval. We deliberately COUNT merge commits here: when the author
-      # merges master/main into the branch (commonly to resolve a merge
-      # conflict), that introduces changes the prior approval never reviewed, so
-      # the PR needs another BE approval and should bubble back to Ready for
-      # Review. (Per policy: any change after approval requires re-approval.)
+      # approval.
+      #
+      # Merge commits are EXCLUDED: merging master/main into the branch adds no
+      # authored change to review, and GitHub agrees — it does not dismiss
+      # approvals for it, so the PR's own "Backend Approval Check" stays green.
+      # Counting them made the dashboard contradict GitHub, flagging PRs like
+      # #29843 as needing re-review while GitHub reported "Changes approved".
       author_commits_after_approval = commits.any? do |commit|
+        # A merge commit has more than one parent. Fall back to the message
+        # prefix when parent data is absent from the payload.
+        parents = commit.parents rescue nil
+        message = (commit.commit.message rescue "").to_s
+        is_merge = (parents && parents.size > 1) ||
+          message.downcase.start_with?("merge branch", "merge pull request", "merge remote-tracking branch")
+        next false if is_merge
+
         commit_author = commit.commit.author.name rescue commit.author&.login rescue nil
         commit_date = commit.commit.author.date rescue nil
 
@@ -392,6 +402,34 @@ class PullRequest < ApplicationRecord
     # Get backend team members
     backend_members = BackendReviewGroupMember.cached_usernames
     reviews = pull_request_reviews.to_a
+
+    # A reviewer's CURRENT stance outranks every heuristic below. If someone's
+    # latest actionable review is CHANGES_REQUESTED, the PR is awaiting the
+    # author — no inference about commits or approvals can override an explicit,
+    # standing request.
+    #
+    # This must come first. It used to sit below the stale-approval check, so a
+    # PR with old approvals plus a recent CHANGES_REQUESTED returned "New commits
+    # after approval" and never surfaced as Awaiting Changes (e.g. mockdata #792:
+    # approved in July, Rachal requested changes Aug 17 to fix merge conflicts,
+    # and the request stayed hidden).
+    latest_actionable_by_user = reviews
+      .group_by(&:user)
+      .transform_values { |rs| rs.reject { |r| r.state == PullRequestReview::COMMENTED }.max_by(&:submitted_at) }
+      .compact
+    open_changes_requested = latest_actionable_by_user
+      .values
+      .select { |r| r.state == PullRequestReview::CHANGES_REQUESTED }
+      .max_by(&:submitted_at)
+
+    if open_changes_requested
+      return {
+        status: "changes_requested",
+        message: "Changes requested",
+        reviewer: open_changes_requested.user,
+        requested_at: open_changes_requested.submitted_at
+      }
+    end
 
     # Check for commits after backend approval (new logic)
     if has_commits_after_backend_approval?

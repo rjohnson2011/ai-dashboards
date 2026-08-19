@@ -39,9 +39,16 @@ class FetchCiChecksJob < ApplicationJob
             pending_checks: result[:pending_checks] || 0
           )
 
+          # Clear stored checks unconditionally: they describe the previous
+          # fetch, so keeping them is only ever correct if we're about to write
+          # replacements. Previously this lived inside the `failed_checks > 0`
+          # branch, which meant a PR whose checks went red -> green kept its old
+          # failing rows forever (nothing ever deleted them), and the dashboard
+          # showed failures GitHub no longer reported.
+          pr.check_runs.destroy_all
+
           # Only store failed checks to save memory
           if result[:failed_checks] > 0 && result[:checks].any?
-            pr.check_runs.destroy_all
             failed_checks_data = result[:checks]
               .select { |c| %w[failure error cancelled].include?(c[:status]) }
               .first(10)

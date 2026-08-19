@@ -2,21 +2,21 @@ name: PR Scraper Cron
 
 on:
   schedule:
-    # Run every 30 minutes during business hours (Mon-Fri, 9am-7pm ET).
+    # Run every 15 minutes during business hours (Mon-Fri, 9am-7pm ET).
     #
     # ET is UTC-5 (winter) / UTC-4 (summer), so 9am-7pm ET spans 13:00-00:00 UTC
     # in winter and 13:00-23:00 UTC in summer. 13-23 UTC covers the working day
     # year-round, erring toward starting on time rather than running late.
     #
-    # Why 30 and not 12: GitHub throttles scheduled workflows, so the old
-    # '*/12' never actually delivered 12-minute intervals — observed gaps ran
-    # 21-50 minutes, and each run itself takes ~11 minutes. A 30-minute cadence
-    # is one the scheduler can actually keep, so the dashboard's "updated N ago"
-    # reflects a real promise instead of an aspirational one.
+    # Budget: ~800 GitHub API calls/run × 4 runs/hour = ~3,200/hour against the
+    # 5,000/hour limit. Actions minutes are free (public repo), and Render has
+    # no request cap — memory is its constraint, which lite mode already bounds
+    # and which frequency doesn't change.
     #
-    # Budget: ~800 API calls/run × 2 runs/hour = ~1,600/hour against the
-    # 5,000/hour limit, leaving ample headroom for manual runs and backfills.
-    - cron: '0,30 13-23 * * 1-5'
+    # Note the scheduler is best-effort: GitHub throttles scheduled workflows
+    # under load, and each run takes ~11 minutes, so observed gaps will often
+    # exceed 15 minutes. This sets the ceiling on freshness, not a guarantee.
+    - cron: '0,15,30,45 13-23 * * 1-5'
   workflow_dispatch: # Allow manual trigger
 
 jobs:

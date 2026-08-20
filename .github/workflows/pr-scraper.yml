@@ -164,3 +164,25 @@ jobs:
         env:
           API_URL: ${{ secrets.API_URL }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+
+      # Step 5: Daily review-events reconciliation (first run of the day only).
+      # The 15-min scraper mirrors reviews for PRs it sees; this sweep catches
+      # reviews on PRs that merged between scrapes. ~10-20 GraphQL calls.
+      - name: Step 5 - Reconcile review events (daily)
+        if: github.event.schedule == '0,15,30,45 13-23 * * 1-5'
+        run: |
+          HOUR=$(date -u +%H)
+          MIN=$(date -u +%M)
+          if [ "$HOUR" = "13" ] && [ "$MIN" -lt 15 ]; then
+            echo "Running daily review-events reconciliation..."
+            for repo in vets-api vets-api-mockdata platform-atlas; do
+              curl -s -X POST "${{ secrets.API_URL }}/api/v1/admin/backfill_review_events?token=${{ secrets.ADMIN_TOKEN }}&repository_name=${repo}&repository_owner=software" \
+                --max-time 300 || echo "reconciliation failed for ${repo} (continuing)"
+              echo ""
+            done
+          else
+            echo "Not the daily window (13:00-13:14 UTC); skipping."
+          fi
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}

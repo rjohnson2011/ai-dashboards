@@ -48,9 +48,19 @@ class GithubService
     graphql_reviews(pr_number)
   rescue => e
     Rails.logger.error "GitHub API Error fetching reviews: #{e.message}"
-    # Fallback to REST API if GraphQL fails
+    # Fallback to REST API if GraphQL fails.
+    #
+    # REST review objects carry raw integer `.id`s — a different ID space
+    # than the SHA256-hashed GraphQL node IDs used everywhere else (see
+    # graphql_reviews below and ReviewEvent). Callers that mirror reviews
+    # into the durable review_events ledger MUST check `id_space` and skip
+    # anything tagged "rest", or the same review can be double-counted once
+    # under its REST id here and again later under its GraphQL id once a
+    # healthy scrape or the nightly backfill records it canonically.
     begin
-      @client.pull_request_reviews("#{@owner}/#{@repo}", pr_number)
+      rest_reviews = @client.pull_request_reviews("#{@owner}/#{@repo}", pr_number)
+      rest_reviews.each { |review| review.define_singleton_method(:id_space) { "rest" } }
+      rest_reviews
     rescue Octokit::Error => rest_error
       Rails.logger.error "GitHub REST API Error (fallback): #{rest_error.message}"
       []
@@ -98,7 +108,8 @@ class GithubService
           id: Digest::SHA256.hexdigest(review[:id]).to_i(16) % (2**62), # Stable hash from GraphQL ID
           user: OpenStruct.new(login: review[:author][:login]),
           state: review[:state],
-          submitted_at: Time.parse(review[:submittedAt])
+          submitted_at: Time.parse(review[:submittedAt]),
+          id_space: "graphql"
         )
       end
     else

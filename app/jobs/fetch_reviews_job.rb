@@ -74,9 +74,22 @@ class FetchReviewsJob < ApplicationJob
           # every scrape and vanishes when the PR merges; review_events is the
           # copy that survives to answer "who reviewed what in March".
           # Zero extra API calls — same payload, second write.
-          if reviews.any?
+          #
+          # Only mirror GraphQL-sourced reviews. When GraphQL fails,
+          # GithubService#pull_request_reviews falls back to REST, whose
+          # review objects carry raw integer ids — a different id space than
+          # the SHA256-hashed GraphQL node ids the ledger is keyed on.
+          # Recording a REST-fallback review here would let it get
+          # re-recorded under its real (hashed) id by a later healthy scrape
+          # or the nightly BackfillReviewEventsJob reconciliation, double
+          # counting the same review under two github_ids. REST-fallback
+          # reviews are deliberately excluded; the nightly GraphQL
+          # reconciliation records them canonically once GraphQL is healthy
+          # again.
+          ledger_reviews = reviews.select { |review_data| review_data.respond_to?(:id_space) && review_data.id_space == "graphql" }
+          if ledger_reviews.any?
             ReviewEvent.record_all(
-              reviews.map do |review_data|
+              ledger_reviews.map do |review_data|
                 {
                   github_id: review_data.id,
                   reviewer: review_data.user.login,

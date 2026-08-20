@@ -70,6 +70,26 @@ class FetchReviewsJob < ApplicationJob
             end
           end
 
+          # Mirror into the durable ledger. The table written above is wiped
+          # every scrape and vanishes when the PR merges; review_events is the
+          # copy that survives to answer "who reviewed what in March".
+          # Zero extra API calls — same payload, second write.
+          if reviews.any?
+            ReviewEvent.record_all(
+              reviews.map do |review_data|
+                {
+                  github_id: review_data.id,
+                  reviewer: review_data.user.login,
+                  state: review_data.state,
+                  submitted_at: review_data.submitted_at,
+                  pr_number: pr.number,
+                  repository_name: pr.repository_name,
+                  repository_owner: pr.repository_owner
+                }
+              end
+            )
+          end
+
           # Fetch PR comments (issue comments) from GitHub
           fetch_pr_comments(pr, github_service)
 

@@ -12,7 +12,12 @@ class BackfillReviewEventsJob < ApplicationJob
   queue_as :default
 
   PAGE_SIZE = 25
-  MAX_PAGES = 250 # hard stop ≈ 6,250 PRs — beyond any single-year volume
+  # Hard stop against runaway pagination. Sized from observation, not guess:
+  # the 2026 backfill hit a 250-page cap at exactly 6,250 PRs without reaching
+  # Jan 1 — "updated since" includes closed PRs touched for any reason, which
+  # far outnumbers PRs merged in the window. 600 pages ≈ 15,000 PRs / 600 API
+  # calls, comfortably covering a year while still bounding a runaway.
+  MAX_PAGES = 600
 
   def perform(since:, repository_name: nil, repository_owner: nil)
     repo = repository_name || ENV["GITHUB_REPO"]

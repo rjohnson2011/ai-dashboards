@@ -12,12 +12,14 @@ class BackfillReviewEventsJob < ApplicationJob
   queue_as :default
 
   PAGE_SIZE = 25
-  # Hard stop against runaway pagination. Sized from observation, not guess:
-  # the 2026 backfill hit a 250-page cap at exactly 6,250 PRs without reaching
-  # Jan 1 — "updated since" includes closed PRs touched for any reason, which
-  # far outnumbers PRs merged in the window. 600 pages ≈ 15,000 PRs / 600 API
-  # calls, comfortably covering a year while still bounding a runaway.
-  MAX_PAGES = 600
+  # Hard stop against runaway pagination, sized from observation: the 2026
+  # backfill hit caps of 250 and then 600 pages at exactly the cap each time —
+  # something mass-touched old merged PRs, so ">15,000 merged PRs have a 2026
+  # updated_at" is literally true and the updated-desc walk only provably
+  # reaches the `since` boundary once the cap exceeds the repo's entire merged
+  # population (~30k PRs). 1,400 pages ≈ 35,000 PRs / 1,400 API calls bounds a
+  # runaway while guaranteeing termination at the boundary or repo end.
+  MAX_PAGES = 1400
 
   def perform(since:, repository_name: nil, repository_owner: nil)
     repo = repository_name || ENV["GITHUB_REPO"]

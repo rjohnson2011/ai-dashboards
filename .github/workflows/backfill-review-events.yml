@@ -1,0 +1,35 @@
+name: Backfill Review Events
+
+# Manual-only: populates the durable review_events ledger for a date range via
+# the admin endpoint. The ADMIN_TOKEN stays in Actions secrets — this exists so
+# backfills can be triggered without handling the token by hand.
+#
+# The year backfill (~160 GraphQL calls for vets-api) runs synchronously in the
+# web service; the generous --max-time accommodates it. Idempotent: re-running
+# any range is a no-op for already-recorded reviews.
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Backfill start date (YYYY-MM-DD)"
+        required: true
+        default: "2026-01-01"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run backfill for all repos
+        run: |
+          for repo in vets-api vets-api-mockdata platform-atlas; do
+            echo "Backfilling ${repo} since ${{ inputs.since }}..."
+            response=$(curl -s -X POST "${{ secrets.API_URL }}/api/v1/admin/backfill_review_events?token=${{ secrets.ADMIN_TOKEN }}&since=${{ inputs.since }}&repository_name=${repo}&repository_owner=software" \
+              --max-time 1500) || true
+            echo "Response (${repo}): ${response}"
+            if ! echo "$response" | grep -q '"success":true'; then
+              echo "Backfill FAILED for ${repo}"
+              exit 1
+            fi
+          done
+          echo "All repos backfilled."

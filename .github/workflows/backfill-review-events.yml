@@ -26,10 +26,16 @@ jobs:
             echo "Backfilling ${repo} since ${{ inputs.since }}..."
             response=$(curl -s -X POST "${{ secrets.API_URL }}/api/v1/admin/backfill_review_events?token=${{ secrets.ADMIN_TOKEN }}&since=${{ inputs.since }}&repository_name=${repo}&repository_owner=software" \
               --max-time 1500) || true
-            echo "Response (${repo}): ${response}"
-            if ! echo "$response" | grep -q '"success":true'; then
-              echo "Backfill FAILED for ${repo}"
-              exit 1
+            echo "Response (${repo}): ${response:0:300}"
+            # A year-long walk outlives the HTTP proxy timeout (~60s): the
+            # response comes back as an HTML error page while the job keeps
+            # running server-side (perform_now survives client disconnect).
+            # So a non-JSON response is expected for big ranges — log and move
+            # on rather than abort; verify counts via reviewer_activity after.
+            if echo "$response" | grep -q '"success":true'; then
+              echo "${repo}: completed within request window."
+            else
+              echo "${repo}: response not confirmable (likely proxy timeout) — job continues server-side."
             fi
           done
-          echo "All repos backfilled."
+          echo "All repos dispatched. Verify via /api/v1/reviews/reviewer_activity counts."

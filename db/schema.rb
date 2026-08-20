@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_08_11_163835) do
+ActiveRecord::Schema[8.0].define(version: 2026_08_20_160819) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -183,6 +183,21 @@ ActiveRecord::Schema[8.0].define(version: 2026_08_11_163835) do
     t.index ["ready_for_backend_review_at"], name: "index_pull_requests_on_ready_for_backend_review_at"
     t.index ["repository_name"], name: "index_pull_requests_on_repository_name"
     t.index ["repository_owner", "repository_name"], name: "index_pull_requests_on_repository_owner_and_repository_name"
+  end
+
+  create_table "review_events", force: :cascade do |t|
+    t.bigint "github_id", null: false
+    t.string "reviewer", null: false
+    t.string "state", null: false
+    t.datetime "submitted_at", null: false
+    t.integer "pr_number"
+    t.string "repository_name"
+    t.string "repository_owner"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["github_id"], name: "index_review_events_on_github_id", unique: true
+    t.index ["reviewer", "submitted_at"], name: "index_review_events_on_reviewer_and_submitted_at"
+    t.index ["submitted_at"], name: "index_review_events_on_submitted_at"
   end
 
   create_table "support_rotations", force: :cascade do |t|

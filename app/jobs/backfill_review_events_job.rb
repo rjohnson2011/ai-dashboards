@@ -52,7 +52,7 @@ class BackfillReviewEventsJob < ApplicationJob
       page[:nodes].each do |pr|
         updated = Time.parse(pr[:updatedAt])
         oldest_on_page = updated
-        next if updated < since && prs_scanned.positive? # sorted desc — tail is out of window
+        next if updated < since # sorted desc — everything past here is out of window
 
         prs_scanned += 1
         (pr.dig(:reviews, :nodes) || []).each do |review|

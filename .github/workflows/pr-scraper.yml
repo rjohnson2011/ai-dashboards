@@ -19,6 +19,10 @@ on:
     - cron: '0,15,30,45 13-23 * * 1-5'
   workflow_dispatch: # Allow manual trigger
 
+concurrency:
+  group: pr-scraper
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -168,11 +172,17 @@ jobs:
       # Step 5: Daily review-events reconciliation (first run of the day only).
       # The 15-min scraper mirrors reviews for PRs it sees; this sweep catches
       # reviews on PRs that merged between scrapes. ~10-20 GraphQL calls.
+      # If the 13:00-slot run starts late or runs long and misses the
+      # 13:00-13:14 window, that day's sweep is skipped — acceptable because
+      # the endpoint's default window is 3 days, so the next day's sweep
+      # covers the gap.
       - name: Step 5 - Reconcile review events (daily)
         if: github.event.schedule == '0,15,30,45 13-23 * * 1-5'
         run: |
           HOUR=$(date -u +%H)
           MIN=$(date -u +%M)
+          # NB: [ "$MIN" -lt 15 ] is POSIX test — decimal even for "09".
+          # Do not convert to $(( )) arithmetic, which treats 09 as bad octal.
           if [ "$HOUR" = "13" ] && [ "$MIN" -lt 15 ]; then
             echo "Running daily review-events reconciliation..."
             for repo in vets-api vets-api-mockdata platform-atlas; do

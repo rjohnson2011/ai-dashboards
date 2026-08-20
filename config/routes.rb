@@ -44,6 +44,7 @@ Rails.application.routes.draw do
       post "admin/fetch_reviews", to: "admin#fetch_reviews"
       post "admin/backfill_reviews", to: "admin#backfill_reviews"
       post "admin/fetch_ci_checks", to: "admin#fetch_ci_checks"
+      post "admin/backfill_review_events", to: "admin#backfill_review_events"
       post "admin/run_migrations", to: "admin#run_migrations"
       post "admin/update_support_rotations", to: "admin#update_support_rotations"
       get "health", to: "admin#health"

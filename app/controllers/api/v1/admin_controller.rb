@@ -715,6 +715,27 @@ module Api
         end
       end
 
+      # Backfill or reconcile review_events. since=YYYY-MM-DD (default: 3 days
+      # ago — the daily reconciliation window; pass since=2026-01-01 for the
+      # one-time year backfill).
+      def backfill_review_events
+        unless params[:token] == ENV["ADMIN_TOKEN"]
+          render json: { error: "Unauthorized" }, status: :unauthorized
+          return
+        end
+
+        since = params[:since].present? ? Time.zone.parse(params[:since]) : 3.days.ago
+        result = BackfillReviewEventsJob.perform_now(
+          since: since,
+          repository_name: params[:repository_name],
+          repository_owner: params[:repository_owner]
+        )
+        render json: { success: true, since: since }.merge(result)
+      rescue StandardError => e
+        Rails.logger.error "[AdminController] backfill_review_events failed: #{e.class}: #{e.message}"
+        render json: { success: false, error: e.message }, status: :internal_server_error
+      end
+
       def remove_repository_prs
         unless params[:token] == ENV["ADMIN_TOKEN"]
           render json: { error: "Unauthorized" }, status: :unauthorized

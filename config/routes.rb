@@ -58,6 +58,7 @@ Rails.application.routes.draw do
       get "sprint_metrics/review_turnaround", to: "sprint_metrics#review_turnaround"
       get "sprint_metrics/support_rotations", to: "sprint_metrics#support_rotations"
       post "sprint_metrics/support_rotations", to: "sprint_metrics#create_support_rotation"
+      get "reviews/reviewer_activity", to: "sprint_metrics#reviewer_activity"
     end
   end
 

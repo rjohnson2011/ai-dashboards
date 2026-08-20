@@ -52,12 +52,7 @@ Rails.application.routes.draw do
       # GitHub webhook endpoint
       post "github_webhooks", to: "github_webhooks#create"
 
-      # Sprint metrics endpoints
-      get "sprint_metrics", to: "sprint_metrics#index"
-      get "sprint_metrics/detailed", to: "sprint_metrics#detailed"
-      get "sprint_metrics/review_turnaround", to: "sprint_metrics#review_turnaround"
-      get "sprint_metrics/support_rotations", to: "sprint_metrics#support_rotations"
-      post "sprint_metrics/support_rotations", to: "sprint_metrics#create_support_rotation"
+      # Sprint metrics endpoints (replaced with reviewer_activity)
       get "reviews/reviewer_activity", to: "sprint_metrics#reviewer_activity"
     end
   end

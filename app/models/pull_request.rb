@@ -689,6 +689,7 @@ class PullRequest < ApplicationRecord
     end
 
     approved_users = []
+    approved_user_details = []
     changes_requested_users = []
     commented_users = []
 
@@ -696,6 +697,9 @@ class PullRequest < ApplicationRecord
       case review.state
       when PullRequestReview::APPROVED
         approved_users << review.user
+        # Name + when: the frontend shows the approval time next to the
+        # approver, which the bare username list cannot carry.
+        approved_user_details << { user: review.user, submitted_at: review.submitted_at }
       when PullRequestReview::CHANGES_REQUESTED
         changes_requested_users << review.user
       when PullRequestReview::COMMENTED
@@ -720,6 +724,7 @@ class PullRequest < ApplicationRecord
       changes_requested_count: changes_requested_users.count,
       pending_count: 0, # We don't track pending reviews
       approved_users: approved_users,
+      approved_user_details: approved_user_details,
       changes_requested_users: changes_requested_users,
       commented_users: commented_users,
       pending_users: [],

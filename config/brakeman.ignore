@@ -1,14 +1,10 @@
 {
   "ignored_warnings": [
     {
-      "fingerprint": "2f86fd88c602f610b464e2e9a81665e352b302a3f939fd00965570b5d84897e0",
-      "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
-    },
-    {
-      "fingerprint": "da4f8b4c07ac3eb01b2c0821d9391d03981ce8866ff76003b2cf8049e9f21a8c",
-      "note": "False positive - all values are properly quoted with ActiveRecord::Base.connection.quote"
+      "fingerprint": "21ab0fe00fdd5899ffc405cff75aadb91b805ee996a614f7e27b08a287e9062d",
+      "note": "EOL notice only - Rails 8.0.2 supported until 2026-10-07; plan upgrade before then"
     }
   ],
-  "updated": "2026-01-23",
-  "brakeman_version": "7.1.2"
+  "updated": "2026-08-20",
+  "brakeman_version": "8.0.4"
 }

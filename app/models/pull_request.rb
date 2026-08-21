@@ -460,12 +460,42 @@ class PullRequest < ApplicationRecord
         .values
       if dismissed_backend.any?
         last_dismissed_backend = dismissed_backend.max_by(&:submitted_at)
-        return {
-          status: "backend_approval_dismissed",
-          message: "Backend approval dismissed — needs re-review",
-          backend_reviewer: last_dismissed_backend.user,
-          dismissed_at: last_dismissed_backend.submitted_at
-        }
+
+        # A backend reviewer speaking AFTER the dismissal outranks it: if a BE
+        # member left feedback (comment, line comment, or COMMENTED review)
+        # newer than the dismissal and the author hasn't responded since, the
+        # PR is awaiting the author — fall through to the feedback logic below,
+        # which classifies it as changes_requested. Once the author replies,
+        # that feedback is resolved and the dismissal signal returns here,
+        # sending the PR back to Ready for re-approval.
+        dismissed_at = last_dismissed_backend.submitted_at
+        be_feedback_after = [
+          reviews.select { |r|
+            backend_members.include?(r.user) &&
+              %w[CHANGES_REQUESTED COMMENTED].include?(r.state) &&
+              r.submitted_at && r.submitted_at > dismissed_at
+          }.map(&:submitted_at),
+          pull_request_comments.to_a.select { |c|
+            backend_members.include?(c.user) && c.commented_at && c.commented_at > dismissed_at
+          }.map(&:commented_at),
+          pull_request_review_comments.to_a.select { |c|
+            backend_members.include?(c.user) && c.commented_at && c.commented_at > dismissed_at
+          }.map(&:commented_at)
+        ].flatten.max
+
+        author_responded_after_feedback = be_feedback_after && (
+          reviews.any? { |r| r.user == author && r.submitted_at && r.submitted_at > be_feedback_after } ||
+          pull_request_comments.to_a.any? { |c| c.user == author && c.commented_at && c.commented_at > be_feedback_after }
+        )
+
+        unless be_feedback_after && !author_responded_after_feedback
+          return {
+            status: "backend_approval_dismissed",
+            message: "Backend approval dismissed — needs re-review",
+            backend_reviewer: last_dismissed_backend.user,
+            dismissed_at: last_dismissed_backend.submitted_at
+          }
+        end
       end
     end
 

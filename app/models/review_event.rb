@@ -15,7 +15,11 @@ class ReviewEvent < ApplicationRecord
   # Approvals per reviewer since `time`. `reviewers:` narrows to a given list
   # (used for the backend-review-group filter). Plain hash out — no relations
   # leaking into the JSON layer.
-  DEPENDABOT_AUTHOR = "dependabot[bot]".freeze
+  # GHE reports this author differently per API: REST returns "dependabot[bot]"
+  # (what the scraper stamps), GraphQL returns "dependabot" (what the backfill
+  # stamps). Match both, or merged dependabot PRs — recorded only by the
+  # backfill — silently count as human-authored.
+  DEPENDABOT_AUTHORS = [ "dependabot[bot]", "dependabot" ].freeze
 
   # Approvals per reviewer since `time`.
   # dependabot: :all (default) counts everything; :exclude drops approvals on
@@ -27,9 +31,9 @@ class ReviewEvent < ApplicationRecord
     scope = scope.where(reviewer: reviewers) if reviewers.present?
     case dependabot
     when :exclude
-      scope = scope.where("pr_author IS NULL OR pr_author <> ?", DEPENDABOT_AUTHOR)
+      scope = scope.where("pr_author IS NULL OR pr_author NOT IN (?)", DEPENDABOT_AUTHORS)
     when :only
-      scope = scope.where(pr_author: DEPENDABOT_AUTHOR)
+      scope = scope.where(pr_author: DEPENDABOT_AUTHORS)
     end
     scope.group(:reviewer).count
   end

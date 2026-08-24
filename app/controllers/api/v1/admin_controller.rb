@@ -724,6 +724,17 @@ module Api
           return
         end
 
+        # Single-flight guard: the request path gets retried at the proxy layer
+        # when a long walk outlives its timeout, and two concurrent year-walks
+        # OOM'd the 512MB dyno on 2026-08-24. The lock lives in the in-process
+        # cache, so a crash/restart clears it automatically.
+        lock_key = "backfill_review_events_running"
+        if Rails.cache.read(lock_key)
+          render json: { success: false, error: "A backfill is already running" }, status: :conflict
+          return
+        end
+        Rails.cache.write(lock_key, Time.current.to_i, expires_in: 40.minutes)
+
         since = params[:since].present? ? Time.zone.parse(params[:since]) : 3.days.ago
         result = BackfillReviewEventsJob.perform_now(
           since: since,
@@ -734,6 +745,8 @@ module Api
       rescue StandardError => e
         Rails.logger.error "[AdminController] backfill_review_events failed: #{e.class}: #{e.message}"
         render json: { success: false, error: e.message }, status: :internal_server_error
+      ensure
+        Rails.cache.delete("backfill_review_events_running")
       end
 
       def remove_repository_prs

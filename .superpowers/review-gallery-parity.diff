@@ -1,0 +1,948 @@
+## commits
+6a0524a Bring dashboard gallery designs to information parity with TriageBoard
+## stat
+ src/designs/BrutalistPrint.tsx    | 58 +++++++++++++++++++++++---------
+ src/designs/CrtConsole.tsx        | 34 ++++++++++++++++---
+ src/designs/EditorialTerminal.tsx | 39 ++++++++++++++++++----
+ src/designs/RefinedMinimal.tsx    | 37 +++++++++++++++++----
+ src/designs/TriageBoard.tsx       | 69 ++++-----------------------------------
+ src/lib/dashboard.ts              | 68 +++++++++++++++++++++++++++++++++++++-
+ src/lib/utils.ts                  |  5 +++
+ 7 files changed, 215 insertions(+), 95 deletions(-)
+## diff
+diff --git a/src/designs/BrutalistPrint.tsx b/src/designs/BrutalistPrint.tsx
+index 6db7aa2..d2a9f5c 100644
+--- a/src/designs/BrutalistPrint.tsx
++++ b/src/designs/BrutalistPrint.tsx
+@@ -11,18 +11,19 @@ import {
+   classifyStatus,
+   reviewerBadgesFor,
+   absoluteTime,
+   nameFromHandle,
+   countByFilter,
+   applyFilter,
+   summarizeFailingChecksCompact,
+   summarizeActivity,
++  changesRequestedCell,
+ } from '../lib/dashboard'
+-import { displayUser } from '../lib/utils'
++import { displayUser, isBotReviewer } from '../lib/utils'
+ 
+ interface Props {
+   pullRequests: PullRequest[]
+ }
+ 
+ const STATUS_GLYPH: Record<string, string> = {
+   failing: '✕',
+   failing_be_approval: '⌧',
+@@ -193,38 +194,44 @@ function ColHead({ children, align = 'left' }: { children: React.ReactNode; alig
+     <span className={`font-mono text-[16px] uppercase tracking-[0.3em] ${align === 'right' ? 'text-right' : ''}`}>
+       {children}
+     </span>
+   )
+ }
+ 
+ function BrutalistRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+   const status = classifyStatus(pr)
+-  const reviewers = reviewerBadgesFor(pr)
++  const reviewers = reviewerBadgesFor(pr).filter(b => !isBotReviewer(b.user))
+   const exempt = isTrulyExemptFromBackendReview(pr)
+   const isFailing = status.key === 'failing' || status.key === 'changes_requested'
+   const beApproved = pr.approval_summary?.approved_users?.some(u => BACKEND_REVIEWERS.includes(u))
++  const approvedAtMap = new Map(
++    (pr.approval_summary?.approved_user_details || []).map(d => [d.user, d.submitted_at])
++  )
++  const cri = changesRequestedCell(pr)
+ 
+   return (
+     <button
+       className="group w-full grid grid-cols-[34px_1fr_180px_180px_120px] items-start gap-x-4 px-3 py-3 border-b border-black/30 last:border-0 text-left hover:bg-black hover:text-[var(--brut-bg)] transition-colors"
+       onClick={() => window.open(pr.url, '_blank', 'noopener,noreferrer')}
+     >
+       <span className="font-mono text-[16px] tabular-nums text-black/45 group-hover:text-[var(--brut-bg)]/60 mt-1">
+         {String(idx).padStart(3, '0')}
+       </span>
+ 
+       <div className="min-w-0">
+         <div className="flex items-center gap-2 mb-0.5">
+           <span className="font-mono text-[16px] tabular-nums text-black/55 group-hover:text-[var(--brut-bg)]/65">
+             #{pr.number}
+           </span>
+-          <span className="font-mono text-[16px] tracking-wide uppercase text-black/55 group-hover:text-[var(--brut-bg)]/65">
+-            {pr.repository_name}
+-          </span>
++          {pr.repository_name && pr.repository_name !== 'vets-api' && (
++            <span className="font-mono text-[16px] tracking-wide uppercase text-black/55 group-hover:text-[var(--brut-bg)]/65">
++              {pr.repository_name}
++            </span>
++          )}
+           {pr.draft && (
+             <span className="font-mono text-[16px] uppercase tracking-[0.22em] border border-current px-1">
+               draft
+             </span>
+           )}
+           {exempt && (
+             <span className="font-mono text-[16px] uppercase tracking-[0.22em] border border-current px-1">
+               exempt
+@@ -249,34 +256,45 @@ function BrutalistRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+           </span>
+           {status.label}
+         </span>
+         {status.key === 'failing' && (
+           <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-black/65 group-hover:text-[var(--brut-bg)]/70 line-clamp-2">
+             {summarizeFailingChecksCompact(pr)}
+           </span>
+         )}
++        {cri && (
++          <span
++            className="font-mono text-[11px] uppercase tracking-[0.14em] text-black/60 group-hover:text-[var(--brut-bg)]/65 line-clamp-2"
++            title={cri.label}
++          >
++            {cri.label}
++          </span>
++        )}
+       </div>
+ 
+       <div className="flex items-center gap-2 flex-wrap min-h-[22px]">
+         {reviewers.length === 0 ? (
+           <span className="font-mono text-[16px] uppercase tracking-[0.22em] text-black/45 group-hover:text-[var(--brut-bg)]/55">
+             none
+           </span>
+         ) : (
+-          reviewers.slice(0, 3).map(({ user, state }) => (
+-            <span
+-              key={user + state}
+-              className="font-mono text-[16px] uppercase tracking-[0.18em] border border-current px-1 py-px"
+-              style={state === 'changes_requested' ? { color: '#e8331c' } : {}}
+-              title={`${state.replace('_', ' ')}`}
+-            >
+-              {nameFromHandle(user)}
+-            </span>
+-          ))
++          reviewers.slice(0, 3).map(({ user, state }) => {
++            const at = state === 'approved' ? approvedAtMap.get(user) : null
++            return (
++              <span
++                key={user + state}
++                className="font-mono text-[16px] uppercase tracking-[0.18em] border border-current px-1 py-px"
++                style={state === 'changes_requested' ? { color: '#e8331c' } : {}}
++                title={`${displayUser(user)} · ${state.replace('_', ' ')}${at ? ` · ${absoluteTime(at)}` : ''}`}
++              >
++                {nameFromHandle(user)}
++              </span>
++            )
++          })
+         )}
+         {reviewers.length > 3 && (
+           <span className="font-mono text-[16px] uppercase tracking-[0.22em] text-black/45 group-hover:text-[var(--brut-bg)]/55">
+             +{reviewers.length - 3}
+           </span>
+         )}
+         {beApproved && (
+           <span
+@@ -300,16 +318,19 @@ function BrutalistRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+             <div className="text-black/50 group-hover:text-[var(--brut-bg)]/55 mt-0.5 tabular-nums">
+               {activity.latestTimeAgo}
+             </div>
+             {activity.rollup && (
+               <div className="text-black/40 group-hover:text-[var(--brut-bg)]/45 mt-0.5 tabular-nums">
+                 {activity.rollup}
+               </div>
+             )}
++            <div className="text-black/35 group-hover:text-[var(--brut-bg)]/40 mt-0.5 tabular-nums">
++              opened {timeAgoShort(pr.created_at)}
++            </div>
+           </div>
+         )
+       })()}
+     </button>
+   )
+ }
+ 
+ function BrutalistEmpty({ filterKey, hasSearch }: { filterKey: FilterKey; hasSearch: boolean }) {
+@@ -336,16 +357,23 @@ function BrutalistEmpty({ filterKey, hasSearch }: { filterKey: FilterKey; hasSea
+     <div className="px-6 py-24 text-center">
+       <div className="font-display font-black text-[80px] leading-none tracking-[-0.04em]" style={{ color: '#e8331c' }}>
+         {titles[filterKey]}
+       </div>
+     </div>
+   )
+ }
+ 
++function timeAgoShort(iso: string): string {
++  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
++  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m`
++  if (secs < 86400) return `${Math.floor(secs / 3600)}h`
++  return `${Math.floor(secs / 86400)}d`
++}
++
+ function BrutalistStyle() {
+   return (
+     <style>{`
+       .brutalist-shell {
+         --brut-bg: #f3ede0;
+         --brut-ink: #0a0a0a;
+         --brut-red: #e8331c;
+         background-color: var(--brut-bg);
+diff --git a/src/designs/CrtConsole.tsx b/src/designs/CrtConsole.tsx
+index 758e122..5b95ef4 100644
+--- a/src/designs/CrtConsole.tsx
++++ b/src/designs/CrtConsole.tsx
+@@ -11,18 +11,19 @@ import {
+   classifyStatus,
+   reviewerBadgesFor,
+   absoluteTime,
+   nameFromHandle,
+   countByFilter,
+   applyFilter,
+   summarizeFailingChecks,
+   summarizeActivity,
++  changesRequestedCell,
+ } from '../lib/dashboard'
+-import { displayUser } from '../lib/utils'
++import { displayUser, isBotReviewer } from '../lib/utils'
+ 
+ interface Props {
+   pullRequests: PullRequest[]
+ }
+ 
+ const STATUS_COLOR: Record<string, string> = {
+   failing: '#ff5d5d',
+   failing_be_approval: '#75c2ff',
+@@ -202,32 +203,40 @@ function CrtStat({ label, value, color }: { label: string; value: number; color?
+       </span>
+     </>
+   )
+ }
+ 
+ function CrtRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+   const status = classifyStatus(pr)
+   const color = STATUS_COLOR[status.key]
+-  const reviewers = reviewerBadgesFor(pr)
++  const reviewers = reviewerBadgesFor(pr).filter(b => !isBotReviewer(b.user))
+   const exempt = isTrulyExemptFromBackendReview(pr)
+   const beApproved = pr.approval_summary?.approved_users?.some(u => BACKEND_REVIEWERS.includes(u))
++  const approvedAtMap = new Map(
++    (pr.approval_summary?.approved_user_details || []).map(d => [d.user, d.submitted_at])
++  )
++  const cri = changesRequestedCell(pr)
+ 
+   return (
+     <button
+       className="group w-full grid grid-cols-[42px_1fr_120px_180px_120px] items-start gap-x-3 px-4 py-2.5 border-b border-[var(--crt-rule-soft)] last:border-0 text-left text-[16px] hover:bg-[rgba(124,216,124,0.04)] transition-colors"
+       onClick={() => window.open(pr.url, '_blank', 'noopener,noreferrer')}
+     >
+       <span className="tabular-nums opacity-50">{String(idx).padStart(3, '0')}</span>
+ 
+       <div className="min-w-0">
+         <div className="flex items-center gap-2 mb-0.5 text-[16px] uppercase tracking-[0.16em] opacity-70">
+           <span>#{pr.number}</span>
+-          <span>·</span>
+-          <span>{pr.repository_name}</span>
++          {pr.repository_name && pr.repository_name !== 'vets-api' && (
++            <>
++              <span>·</span>
++              <span>{pr.repository_name}</span>
++            </>
++          )}
+           {pr.draft && <span className="text-[var(--crt-amber)]">· DRAFT</span>}
+           {exempt && <span style={{ color: '#9ad6c4' }}>· EXEMPT</span>}
+         </div>
+         <div className="truncate text-[16px] leading-snug">
+           <span style={{ color: 'var(--crt-green)' }}>›</span> {pr.title}
+         </div>
+         <div className="mt-0.5 text-[16px] opacity-70">
+           {displayUser(pr.author).toLowerCase()}
+@@ -238,31 +247,38 @@ function CrtRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+         <span className="text-[12px] tabular-nums" style={{ color }}>
+           [{STATUS_TAG[status.key] || 'OPEN'}] {status.label}
+         </span>
+         {status.key === 'failing' && (
+           <span className="text-[11px] opacity-70 line-clamp-2">
+             {summarizeFailingChecks(pr)}
+           </span>
+         )}
++        {cri && (
++          <span className="text-[11px] opacity-60 line-clamp-2" title={cri.label}>
++            {cri.label.toLowerCase()}
++            {cri.when && ` · ${cri.when}`}
++          </span>
++        )}
+       </div>
+ 
+       <div className="flex items-center gap-1.5 flex-wrap min-h-[20px] text-[16px] tracking-wide">
+         {reviewers.length === 0 ? (
+           <span className="opacity-40">—</span>
+         ) : (
+           reviewers.slice(0, 3).map(({ user, state }) => {
+             const c =
+               state === 'approved' ? '#7cd87c' : state === 'changes_requested' ? '#ff5d5d' : 'inherit'
++            const at = state === 'approved' ? approvedAtMap.get(user) : null
+             return (
+               <span
+                 key={user + state}
+                 style={{ color: c }}
+                 className="inline-flex items-center"
+-                title={`${displayUser(user)} · ${state.replace('_', ' ')}`}
++                title={`${displayUser(user)} · ${state.replace('_', ' ')}${at ? ` · ${absoluteTime(at)}` : ''}`}
+               >
+                 {nameFromHandle(user)}
+               </span>
+             )
+           })
+         )}
+         {reviewers.length > 3 && (
+           <span className="opacity-50">+{reviewers.length - 3}</span>
+@@ -281,16 +297,17 @@ function CrtRow({ pr, idx }: { pr: PullRequest; idx: number }) {
+             className="text-right text-[12px] leading-tight tracking-wide"
+             title={`Updated ${absoluteTime(pr.updated_at)}\nCreated ${absoluteTime(pr.created_at)}`}
+           >
+             <div className="opacity-90 truncate">{activity.latestLabel.toLowerCase()}</div>
+             <div className="opacity-60 tabular-nums">{activity.latestTimeAgo}</div>
+             {activity.rollup && (
+               <div className="opacity-40 tabular-nums">{activity.rollup.toLowerCase()}</div>
+             )}
++            <div className="opacity-30 tabular-nums">opened {timeAgoShort(pr.created_at)}</div>
+           </div>
+         )
+       })()}
+     </button>
+   )
+ }
+ 
+ function CrtEmpty({ filterKey, hasSearch }: { filterKey: FilterKey; hasSearch: boolean }) {
+@@ -323,16 +340,23 @@ function CrtEmpty({ filterKey, hasSearch }: { filterKey: FilterKey; hasSearch: b
+   return (
+     <div className="px-6 py-12 text-center text-[16px]">
+       <pre className="text-[var(--crt-green)] opacity-70 inline-block text-left">{ascii}</pre>
+       <div className="mt-3">{lines[filterKey]}</div>
+     </div>
+   )
+ }
+ 
++function timeAgoShort(iso: string): string {
++  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
++  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`
++  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
++  return `${Math.floor(secs / 86400)}d ago`
++}
++
+ function CrtStyle() {
+   return (
+     <style>{`
+       .crt-shell {
+         --crt-bg: #0c1410;
+         --crt-fg: #b8e8b8;
+         --crt-green: #7cd87c;
+         --crt-amber: #ffb347;
+diff --git a/src/designs/EditorialTerminal.tsx b/src/designs/EditorialTerminal.tsx
+index e24e93d..c412105 100644
+--- a/src/designs/EditorialTerminal.tsx
++++ b/src/designs/EditorialTerminal.tsx
+@@ -12,18 +12,20 @@ import {
+   classifyStatus,
+   reviewerBadgesFor,
+   absoluteTime,
+   nameFromHandle,
+   countByFilter,
+   applyFilter,
+   summarizeFailingChecks,
+   summarizeActivity,
++  changesRequestedCell,
++  fmtEastern,
+ } from '../lib/dashboard'
+-import { displayUser } from '../lib/utils'
++import { displayUser, isBotReviewer } from '../lib/utils'
+ 
+ interface Props {
+   pullRequests: PullRequest[]
+ }
+ 
+ const STATUS_COLOR: Record<string, { stripe: string; pillBg: string; pillText: string }> = {
+   failing: { stripe: '#d27a64', pillBg: 'rgba(210,122,100,0.14)', pillText: '#d27a64' },
+   // Ready PR whose only "failure" is the backend-approval gate — not alarming, just informational.
+@@ -217,32 +219,35 @@ function ColHead({ label, align = 'left' }: { label: string; align?: 'left' | 'r
+ }
+ 
+ function PrRow({ pr }: { pr: PullRequest }) {
+   const status = classifyStatus(pr)
+   // Fall back to the neutral 'open' palette for any status key not explicitly
+   // mapped, so a newly-added Status never crashes the gallery (e.g. reading
+   // colors.stripe on undefined).
+   const colors = STATUS_COLOR[status.key] ?? STATUS_COLOR.open
+-  const reviewers = reviewerBadgesFor(pr)
++  const reviewers = reviewerBadgesFor(pr).filter(b => !isBotReviewer(b.user))
+   const exempt = isTrulyExemptFromBackendReview(pr)
+   const authorColor = colorForHandle(pr.author)
+   const beApproved = pr.approval_summary?.approved_users?.some(u => BACKEND_REVIEWERS.includes(u))
++  const cri = changesRequestedCell(pr)
+ 
+   return (
+     <button
+       className="group w-full grid grid-cols-[12px_1fr_220px_160px_140px] items-start gap-x-4 px-3 py-3 border-b border-[var(--ed-rule-soft)] last:border-0 text-left hover:bg-[rgba(255,255,255,0.025)] transition-colors"
+       onClick={() => window.open(pr.url, '_blank', 'noopener,noreferrer')}
+     >
+       <span className="self-stretch w-[3px] -my-3" style={{ backgroundColor: colors.stripe, opacity: 0.85 }} />
+ 
+       <div className="min-w-0">
+         <div className="flex items-center gap-2 mb-1">
+           <span className="font-mono text-[16px] tabular-nums text-stone-500">#{pr.number}</span>
+-          <span className="font-mono text-[16px] tracking-wide text-stone-500">{pr.repository_name}</span>
++          {pr.repository_name && pr.repository_name !== 'vets-api' && (
++            <span className="font-mono text-[16px] tracking-wide text-stone-500">{pr.repository_name}</span>
++          )}
+           {pr.draft && (
+             <span className="font-mono text-[16px] uppercase tracking-[0.2em] text-stone-500 border border-stone-800 px-1 py-px">
+               draft
+             </span>
+           )}
+           {exempt && (
+             <span className="font-mono text-[16px] uppercase tracking-[0.2em] text-[#9ab8a4] border border-[#3d5a4a] px-1 py-px">
+               exempt
+@@ -274,20 +279,26 @@ function PrRow({ pr }: { pr: PullRequest }) {
+           {status.key === 'approved' && <GitMerge className="h-3 w-3" />}
+           {status.label}
+         </span>
+         {status.key === 'failing' && (
+           <span className="font-mono text-[12px] text-stone-500 line-clamp-2">
+             {summarizeFailingChecks(pr)}
+           </span>
+         )}
++        {cri && (
++          <span className="font-mono text-[11px] text-stone-500 truncate" title={cri.label}>
++            {cri.label}
++            {cri.when && <span className="text-stone-600"> · {cri.when}</span>}
++          </span>
++        )}
+       </div>
+ 
+       <div className="flex items-center gap-2 min-h-[22px]">
+-        <ReviewerStack badges={reviewers} />
++        <ReviewerStack badges={reviewers} approvedAt={pr.approval_summary?.approved_user_details} />
+         {beApproved && (
+           <span title="Backend reviewer approved" className="text-[#9ab877]">
+             <CheckCircle2 className="h-3 w-3" />
+           </span>
+         )}
+       </div>
+ 
+       {(() => {
+@@ -297,49 +308,58 @@ function PrRow({ pr }: { pr: PullRequest }) {
+             className="text-right font-mono text-[12px] leading-tight"
+             title={`Created ${absoluteTime(pr.created_at)}\nUpdated ${absoluteTime(pr.updated_at)}`}
+           >
+             <div className="text-stone-200">{activity.latestLabel}</div>
+             <div className="text-stone-500 mt-0.5 tabular-nums">{activity.latestTimeAgo}</div>
+             {activity.rollup && (
+               <div className="text-stone-600 mt-1 tabular-nums">{activity.rollup}</div>
+             )}
++            <div className="text-stone-700 mt-1 tabular-nums">opened {timeAgoShort(pr.created_at)}</div>
+           </div>
+         )
+       })()}
+     </button>
+   )
+ }
+ 
+-function ReviewerStack({ badges }: { badges: { user: string; state: string }[] }) {
++function ReviewerStack({
++  badges,
++  approvedAt,
++}: {
++  badges: { user: string; state: string }[]
++  approvedAt?: { user: string; submitted_at: string }[]
++}) {
+   if (badges.length === 0) {
+     return <span className="text-[16px] tracking-wide text-stone-600 font-mono">—</span>
+   }
+   const visible = badges.slice(0, 5)
+   const overflow = badges.length - visible.length
++  const approvedAtMap = new Map((approvedAt || []).map(d => [d.user, d.submitted_at]))
+   return (
+     <div className="flex -space-x-1.5 items-center">
+       {visible.map(({ user, state }, i) => {
+         const c = colorForHandle(user)
+         const ringColor =
+           state === 'approved'
+             ? '#9ab877'
+             : state === 'changes_requested'
+               ? '#c97a64'
+               : 'rgba(255,255,255,0.18)'
++        const at = state === 'approved' ? approvedAtMap.get(user) : null
+         return (
+           <span
+             key={user + state + i}
+             className="relative inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-[16px] font-mono font-medium"
+             style={{
+               backgroundColor: c.bg,
+               color: c.fg,
+               boxShadow: `0 0 0 1.5px ${ringColor}, 0 0 0 3px var(--ed-bg)`,
+             }}
+-            title={`${displayUser(user)} · ${state.replace('_', ' ')}`}
++            title={`${displayUser(user)} · ${state.replace('_', ' ')}${at ? ` · ${fmtEastern(at)}` : ''}`}
+           >
+             {nameFromHandle(user)}
+           </span>
+         )
+       })}
+       {overflow > 0 && (
+         <span
+           className="inline-flex h-[22px] min-w-[22px] px-1 items-center justify-center rounded-full text-[16px] font-mono text-stone-400"
+@@ -381,16 +401,23 @@ function EmptyState({ filterKey, hasSearch }: { filterKey: FilterKey; hasSearch:
+   return (
+     <div className="px-6 py-20 text-center">
+       <div className="font-serif italic text-2xl text-stone-200">{title}</div>
+       <div className="mt-2 font-mono text-[16px] uppercase tracking-[0.18em] text-stone-500">{sub}</div>
+     </div>
+   )
+ }
+ 
++function timeAgoShort(iso: string): string {
++  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
++  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`
++  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
++  return `${Math.floor(secs / 86400)}d ago`
++}
++
+ function EditorialStyle() {
+   return (
+     <style>{`
+       .editorial-shell {
+         --ed-bg: #131311;
+         --ed-rule: rgba(245,235,210,0.07);
+         --ed-rule-soft: rgba(245,235,210,0.035);
+         background-color: var(--ed-bg);
+diff --git a/src/designs/RefinedMinimal.tsx b/src/designs/RefinedMinimal.tsx
+index 1245028..aa487ed 100644
+--- a/src/designs/RefinedMinimal.tsx
++++ b/src/designs/RefinedMinimal.tsx
+@@ -10,18 +10,19 @@ import {
+   classifyStatus,
+   reviewerBadgesFor,
+   absoluteTime,
+   nameFromHandle,
+   countByFilter,
+   applyFilter,
+   summarizeFailingChecks,
+   summarizeActivity,
++  changesRequestedCell,
+ } from '../lib/dashboard'
+-import { displayUser } from '../lib/utils'
++import { displayUser, isBotReviewer } from '../lib/utils'
+ 
+ interface Props {
+   pullRequests: PullRequest[]
+ }
+ 
+ const STATUS_DOT: Record<string, string> = {
+   failing: '#dc2626',
+   failing_be_approval: '#1d4ed8',
+@@ -173,19 +174,20 @@ function RefinedStat({ label, value, accent }: { label: string; value: number; a
+         {value}
+       </dd>
+     </>
+   )
+ }
+ 
+ function RefinedRow({ pr }: { pr: PullRequest }) {
+   const status = classifyStatus(pr)
+-  const reviewers = reviewerBadgesFor(pr)
++  const reviewers = reviewerBadgesFor(pr).filter(b => !isBotReviewer(b.user))
+   const exempt = isTrulyExemptFromBackendReview(pr)
+   const beApproved = pr.approval_summary?.approved_users?.some(u => BACKEND_REVIEWERS.includes(u))
++  const cri = changesRequestedCell(pr)
+ 
+   return (
+     <li>
+       <button
+         className="group w-full grid grid-cols-[1fr_auto_auto] items-start gap-x-8 py-6 text-left hover:bg-neutral-50 transition-colors -mx-3 px-3"
+         onClick={() => window.open(pr.url, '_blank', 'noopener,noreferrer')}
+       >
+         <div className="min-w-0">
+@@ -193,17 +195,17 @@ function RefinedRow({ pr }: { pr: PullRequest }) {
+             <span
+               className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+               style={{ backgroundColor: STATUS_DOT[status.key] }}
+             />
+             <span className="font-mono text-[16px] uppercase tracking-[0.14em] text-neutral-500">
+               {status.label}
+             </span>
+             <span className="font-mono text-[16px] tabular-nums text-neutral-400">
+-              · {pr.repository_name} #{pr.number}
++              · {pr.repository_name && pr.repository_name !== 'vets-api' ? `${pr.repository_name} ` : ''}#{pr.number}
+             </span>
+             {pr.draft && (
+               <span className="font-mono text-[16px] uppercase tracking-[0.16em] text-neutral-400">
+                 · draft
+               </span>
+             )}
+             {exempt && (
+               <span className="font-mono text-[16px] uppercase tracking-[0.16em] text-neutral-400">
+@@ -214,21 +216,28 @@ function RefinedRow({ pr }: { pr: PullRequest }) {
+           <div className="font-display text-[18px] leading-snug text-neutral-900 group-hover:text-black truncate transition-colors">
+             {pr.title}
+           </div>
+           <div className="mt-1.5 font-mono text-[12px] text-neutral-500">
+             {displayUser(pr.author)}
+             {status.key === 'failing' && (
+               <span className="text-neutral-400"> — {summarizeFailingChecks(pr)}</span>
+             )}
++            {cri && (
++              <span className="text-neutral-400">
++                {' '}
++                — {cri.label}
++                {cri.when && ` · ${cri.when}`}
++              </span>
++            )}
+           </div>
+         </div>
+ 
+         <div className="flex items-center gap-3 self-center">
+-          <RefinedReviewerStack badges={reviewers} />
++          <RefinedReviewerStack badges={reviewers} approvedAt={pr.approval_summary?.approved_user_details} />
+           {beApproved && (
+             <span
+               className="font-mono text-[16px] uppercase tracking-[0.2em] px-1.5 py-0.5 rounded-sm"
+               style={{ color: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)' }}
+               title="Backend approved"
+             >
+               BE
+             </span>
+@@ -242,45 +251,54 @@ function RefinedRow({ pr }: { pr: PullRequest }) {
+               className="text-right font-mono text-[12px] leading-tight self-center"
+               title={`Updated ${absoluteTime(pr.updated_at)}\nCreated ${absoluteTime(pr.created_at)}`}
+             >
+               <div className="text-neutral-700">{activity.latestLabel}</div>
+               <div className="text-neutral-400 mt-0.5 tabular-nums">{activity.latestTimeAgo}</div>
+               {activity.rollup && (
+                 <div className="text-neutral-400 mt-0.5 tabular-nums">{activity.rollup}</div>
+               )}
++              <div className="text-neutral-300 mt-0.5 tabular-nums">opened {timeAgoShort(pr.created_at)}</div>
+             </div>
+           )
+         })()}
+       </button>
+     </li>
+   )
+ }
+ 
+-function RefinedReviewerStack({ badges }: { badges: { user: string; state: string }[] }) {
++function RefinedReviewerStack({
++  badges,
++  approvedAt,
++}: {
++  badges: { user: string; state: string }[]
++  approvedAt?: { user: string; submitted_at: string }[]
++}) {
+   if (badges.length === 0) {
+     return <span className="font-mono text-[16px] text-neutral-400">—</span>
+   }
+   const visible = badges.slice(0, 4)
+   const overflow = badges.length - visible.length
++  const approvedAtMap = new Map((approvedAt || []).map(d => [d.user, d.submitted_at]))
+   return (
+     <div className="flex -space-x-1.5 items-center">
+       {visible.map(({ user, state }, i) => {
+         const ringColor =
+           state === 'approved'
+             ? '#16a34a'
+             : state === 'changes_requested'
+               ? '#dc2626'
+               : '#d4d4d4'
++        const at = state === 'approved' ? approvedAtMap.get(user) : null
+         return (
+           <span
+             key={user + state + i}
+             className="relative inline-flex h-[24px] w-[24px] items-center justify-center rounded-full text-[16px] font-mono font-medium text-neutral-700 bg-neutral-100"
+             style={{ boxShadow: `0 0 0 1.5px ${ringColor}, 0 0 0 3px white` }}
+-            title={`${displayUser(user)} · ${state.replace('_', ' ')}`}
++            title={`${displayUser(user)} · ${state.replace('_', ' ')}${at ? ` · ${absoluteTime(at)}` : ''}`}
+           >
+             {nameFromHandle(user)}
+           </span>
+         )
+       })}
+       {overflow > 0 && (
+         <span
+           className="inline-flex h-[24px] min-w-[24px] px-1 items-center justify-center rounded-full text-[16px] font-mono text-neutral-500 bg-neutral-100"
+@@ -317,16 +335,23 @@ function RefinedEmpty({ filterKey, hasSearch }: { filterKey: FilterKey; hasSearc
+   return (
+     <div className="py-24 text-center">
+       <div className="font-display text-[40px] tracking-tight text-neutral-900">{title}</div>
+       <div className="mt-3 font-mono text-[16px] text-neutral-500">{sub}</div>
+     </div>
+   )
+ }
+ 
++function timeAgoShort(iso: string): string {
++  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
++  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`
++  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
++  return `${Math.floor(secs / 86400)}d ago`
++}
++
+ function RefinedStyle() {
+   return (
+     <style>{`
+       .refined-shell {
+         background-color: #ffffff;
+         color: #171717;
+       }
+       .refined-shell .font-display {
+diff --git a/src/designs/TriageBoard.tsx b/src/designs/TriageBoard.tsx
+index 275ddad..5910e10 100644
+--- a/src/designs/TriageBoard.tsx
++++ b/src/designs/TriageBoard.tsx
+@@ -5,18 +5,20 @@ import {
+   type Status,
+   FILTERS,
+   classifyStatus,
+   reviewerBadgesFor,
+   absoluteTime,
+   countByFilter,
+   applyFilter,
+   summarizeFailingChecksCompact,
++  changesRequestedCell,
++  fmtEastern,
+ } from '../lib/dashboard'
+-import { displayUser } from '../lib/utils'
++import { displayUser, isBotReviewer } from '../lib/utils'
+ 
+ interface Props {
+   pullRequests: PullRequest[]
+ }
+ 
+ // ── Triage Board ────────────────────────────────────────────────────────────
+ // Design thesis: color is state, not decoration — one violet accent (the
+ // selected queue and the table rail, nothing else), red only for genuinely
+@@ -72,82 +74,25 @@ const QUEUE_COPY: Record<string, { title: string; hint: string }> = {
+ 
+ function statusTone(key: Status): string {
+   if (key === 'failing' || key === 'failing_be_approval') return T.red
+   if (key === 'approved') return T.green
+   if (key === 'changes_requested' || key === 'needs_reapproval') return T.amber
+   return T.text
+ }
+ 
+-// Bot reviewers add noise, not signal — reviews from humans only.
+-function isBotReviewer(user: string): boolean {
+-  return /\[bot\]$|copilot-pull-request|github-advanced-security|github-actions/i.test(user)
+-}
+-
+ const badgeTone: Record<string, string> = {
+   approved: T.green,
+   changes_requested: T.amber,
+   commented: T.text,
+ }
+ 
+-// Mirrors /dashboard's Changes Requested column exactly: the same per-status
+-// labels, the same ET timestamp, and the same fallback to the latest reviewer
+-// activity when no changes-requested status exists — so the two pages never
+-// disagree about a row.
+-function fmtEastern(iso: string): string {
+-  return new Date(iso).toLocaleString('en-US', {
+-    month: 'short',
+-    day: 'numeric',
+-    hour: 'numeric',
+-    minute: '2-digit',
+-    hour12: true,
+-    timeZone: 'America/New_York',
+-  })
+-}
+-
+-function changesRequestedCell(pr: PullRequest): { label: string; when: string | null; tone: string } | null {
+-  const info = pr.changes_requested_info
+-  if (info) {
+-    const ts =
+-      info.status === 'changes_requested'
+-        ? info.requested_at || info.backend_comment_at
+-        : info.status === 'new_commits_after_approval'
+-          ? info.approved_at
+-          : info.status === 'backend_approval_dismissed' || info.status === 'new_commit_from_author'
+-            ? info.dismissed_at
+-            : info.status === 'new_comment_from_author'
+-              ? info.author_comment_at || info.backend_comment_at
+-              : null
+-    const label =
+-      info.status === 'new_commit_from_author'
+-        ? 'New commits by author'
+-        : info.status === 'new_comment_from_author'
+-          ? 'New comment from author'
+-          : info.status === 'new_commits_after_approval'
+-            ? 'New commits after approval'
+-            : info.status === 'backend_approval_dismissed'
+-              ? 'BE approval dismissed'
+-              : info.message
+-    const tone =
+-      info.status === 'backend_approval_dismissed'
+-        ? T.red
+-        : info.status === 'new_commits_after_approval' || info.status === 'changes_requested'
+-          ? T.amber
+-          : T.text
+-    return { label, when: ts ? fmtEastern(ts) : null, tone }
+-  }
+-  const act = pr.latest_reviewer_activity
+-  if (act) {
+-    return {
+-      label: `${displayUser(act.user)} ${act.type === 'comment' ? 'commented' : act.type}`,
+-      when: fmtEastern(act.timestamp),
+-      tone: T.text,
+-    }
+-  }
+-  return null
++// Map the shared cell's semantic tone to this design's palette.
++function criTone(tone: 'red' | 'amber' | 'neutral'): string {
++  return tone === 'red' ? T.red : tone === 'amber' ? T.amber : T.text
+ }
+ 
+ type SortCol = 'number' | 'title' | 'author' | 'created' | 'updated'
+ 
+ export default function TriageBoard({ pullRequests }: Props) {
+   const [active, setActive] = useState<FilterKey>('ready')
+   const [query, setQuery] = useState('')
+   // Oldest-updated first by default, matching /dashboard: the forgotten PR is
+@@ -460,17 +405,17 @@ export default function TriageBoard({ pullRequests }: Props) {
+                         <span className="truncate" style={type.secondary} title={status.label}>
+                           {status.label}
+                         </span>
+                       </span>
+                     </td>
+                     <td className="px-4 py-3 align-top">
+                       {criCell ? (
+                         <>
+-                          <span className="block truncate" style={{ ...type.secondary, color: criCell.tone }} title={criCell.label}>
++                          <span className="block truncate" style={{ ...type.secondary, color: criTone(criCell.tone) }} title={criCell.label}>
+                             {criCell.label}
+                           </span>
+                           {criCell.when && (
+                             <span className="block truncate" style={{ ...type.secondary, fontSize: 11 }}>
+                               {criCell.when}
+                             </span>
+                           )}
+                         </>
+diff --git a/src/lib/dashboard.ts b/src/lib/dashboard.ts
+index 6223aa3..d5d71d9 100644
+--- a/src/lib/dashboard.ts
++++ b/src/lib/dashboard.ts
+@@ -6,17 +6,17 @@ import {
+   hasFailingCi,
+   hasNonReviewFailingChecks,
+   hasCommitsAfterApproval,
+   hasDismissedBackendApproval,
+   isDependabot,
+   isTrulyExemptFromBackendReview,
+   needsFirstTeamReview,
+ } from '../types/pull-request'
+-import { isGhostUser } from './utils'
++import { displayUser, isGhostUser } from './utils'
+ 
+ export type FilterKey =
+   | 'ready'
+   | 'team'
+   | 'awaiting'
+   | 'failing'
+   | 'drafts'
+   | 'dependabot'
+@@ -163,16 +163,82 @@ export function absoluteTime(iso: string): string {
+     year: 'numeric',
+     hour: 'numeric',
+     minute: '2-digit',
+     hour12: true,
+     timeZone: 'America/New_York',
+   })
+ }
+ 
++// Shorter Eastern-time stamp (no year) for the Changes Requested cell and
++// approval timestamps, where the row context already implies "recent."
++export function fmtEastern(iso: string): string {
++  return new Date(iso).toLocaleString('en-US', {
++    month: 'short',
++    day: 'numeric',
++    hour: 'numeric',
++    minute: '2-digit',
++    hour12: true,
++    timeZone: 'America/New_York',
++  })
++}
++
++export interface ChangesRequestedCell {
++  label: string
++  when: string | null
++  // Semantic tone, not a color — callers map this to their own palette.
++  tone: 'red' | 'amber' | 'neutral'
++}
++
++// Mirrors /dashboard's Changes Requested column exactly: the same per-status
++// labels, the same ET timestamp, and the same fallback to the latest reviewer
++// activity when no changes-requested status exists — so every design agrees
++// with /dashboard about a row's changes-requested state.
++export function changesRequestedCell(pr: PullRequest): ChangesRequestedCell | null {
++  const info = pr.changes_requested_info
++  if (info) {
++    const ts =
++      info.status === 'changes_requested'
++        ? info.requested_at || info.backend_comment_at
++        : info.status === 'new_commits_after_approval'
++          ? info.approved_at
++          : info.status === 'backend_approval_dismissed' || info.status === 'new_commit_from_author'
++            ? info.dismissed_at
++            : info.status === 'new_comment_from_author'
++              ? info.author_comment_at || info.backend_comment_at
++              : null
++    const label =
++      info.status === 'new_commit_from_author'
++        ? 'New commits by author'
++        : info.status === 'new_comment_from_author'
++          ? 'New comment from author'
++          : info.status === 'new_commits_after_approval'
++            ? 'New commits after approval'
++            : info.status === 'backend_approval_dismissed'
++              ? 'BE approval dismissed'
++              : info.message
++    const tone: ChangesRequestedCell['tone'] =
++      info.status === 'backend_approval_dismissed'
++        ? 'red'
++        : info.status === 'new_commits_after_approval' || info.status === 'changes_requested'
++          ? 'amber'
++          : 'neutral'
++    return { label, when: ts ? fmtEastern(ts) : null, tone }
++  }
++  const act = pr.latest_reviewer_activity
++  if (act) {
++    return {
++      label: `${displayUser(act.user)} ${act.type === 'comment' ? 'commented' : act.type}`,
++      when: fmtEastern(act.timestamp),
++      tone: 'neutral',
++    }
++  }
++  return null
++}
++
+ // Filters out "Backend Approval / Succeed if backend approval is confirmed"
+ // and similar review-required checks that are chicken-and-egg failures
+ // (they're only failing because the review hasn't happened).
+ function isReviewGate(name: string): boolean {
+   const n = name.toLowerCase()
+   return (
+     n.includes('backend approval') ||
+     n.includes('succeed if backend') ||
+diff --git a/src/lib/utils.ts b/src/lib/utils.ts
+index 4f5f655..6445f6e 100644
+--- a/src/lib/utils.ts
++++ b/src/lib/utils.ts
+@@ -10,9 +10,14 @@ const GHOST_USER_RE = /^[a-f0-9]{20,}$/
+ 
+ export function isGhostUser(handle: string | undefined | null): boolean {
+   return !!handle && GHOST_USER_RE.test(handle)
+ }
+ 
+ export function displayUser(handle: string | undefined | null): string {
+   if (!handle) return ""
+   return isGhostUser(handle) ? "(former user)" : handle
++}
++
++// Bot reviewers add noise, not signal — reviews from humans only.
++export function isBotReviewer(user: string): boolean {
++  return /\[bot\]$|copilot-pull-request|github-advanced-security|github-actions/i.test(user)
+ }
+\ No newline at end of file

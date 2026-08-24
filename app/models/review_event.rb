@@ -15,10 +15,22 @@ class ReviewEvent < ApplicationRecord
   # Approvals per reviewer since `time`. `reviewers:` narrows to a given list
   # (used for the backend-review-group filter). Plain hash out — no relations
   # leaking into the JSON layer.
-  def self.counts_since(time, repository_name: nil, reviewers: nil)
+  DEPENDABOT_AUTHOR = "dependabot[bot]".freeze
+
+  # Approvals per reviewer since `time`.
+  # dependabot: :all (default) counts everything; :exclude drops approvals on
+  # dependabot-authored PRs; :only counts nothing else. NULL pr_author (rows
+  # predating the column) is treated as human-authored.
+  def self.counts_since(time, repository_name: nil, reviewers: nil, dependabot: :all)
     scope = counted.where("submitted_at >= ?", time)
     scope = scope.where(repository_name: repository_name) if repository_name.present?
     scope = scope.where(reviewer: reviewers) if reviewers.present?
+    case dependabot
+    when :exclude
+      scope = scope.where("pr_author IS NULL OR pr_author <> ?", DEPENDABOT_AUTHOR)
+    when :only
+      scope = scope.where(pr_author: DEPENDABOT_AUTHOR)
+    end
     scope.group(:reviewer).count
   end
 

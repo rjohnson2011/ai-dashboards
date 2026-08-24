@@ -14,13 +14,20 @@ class Api::V1::SprintMetricsController < ApplicationController
       ytd: Time.zone.local(2026, 1, 1)
     }
 
-    payload = windows.transform_values do |since|
-      ReviewEvent.counts_since(since, repository_name: repository_name, reviewers: reviewers)
-        .sort_by { |_r, count| -count }
-        .map { |reviewer, count| { reviewer: reviewer, count: count } }
+    # Three parallel scopes so the page can chart human-authored PRs,
+    # dependabot PRs, and combined totals side by side.
+    scopes = { all: :all, human: :exclude, dependabot: :only }
+    payload = scopes.transform_values do |dependabot_scope|
+      windows.transform_values do |since|
+        ReviewEvent.counts_since(since, repository_name: repository_name,
+                                        reviewers: reviewers, dependabot: dependabot_scope)
+          .sort_by { |_r, count| -count }
+          .map { |reviewer, count| { reviewer: reviewer, count: count } }
+      end
     end
 
-    render json: { windows: payload, backend_members: backend_members, generated_at: Time.current }
+    # `windows` kept for any consumer of the old shape (combined scope).
+    render json: { scopes: payload, windows: payload[:all], backend_members: backend_members, generated_at: Time.current }
   rescue StandardError => e
     Rails.logger.error "[SprintMetrics] reviewer_activity failed: #{e.class}: #{e.message}"
     render json: { error: "Failed to load reviewer activity" }, status: :internal_server_error

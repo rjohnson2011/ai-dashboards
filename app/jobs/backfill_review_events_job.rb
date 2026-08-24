@@ -40,6 +40,7 @@ class BackfillReviewEventsJob < ApplicationJob
               nodes {
                 number
                 updatedAt
+                author { login }
                 reviews(first: 50) {
                   nodes { id state submittedAt author { login } }
                 }
@@ -74,6 +75,7 @@ class BackfillReviewEventsJob < ApplicationJob
             state: review[:state],
             submitted_at: Time.parse(review[:submittedAt]),
             pr_number: pr[:number],
+            pr_author: pr.dig(:author, :login),
             repository_name: repo,
             repository_owner: owner
           }

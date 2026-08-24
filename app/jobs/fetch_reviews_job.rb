@@ -96,6 +96,7 @@ class FetchReviewsJob < ApplicationJob
                   state: review_data.state,
                   submitted_at: review_data.submitted_at,
                   pr_number: pr.number,
+                  pr_author: pr.author,
                   repository_name: pr.repository_name,
                   repository_owner: pr.repository_owner
                 }

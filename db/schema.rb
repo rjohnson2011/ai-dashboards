@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_08_20_160819) do
+ActiveRecord::Schema[8.0].define(version: 2026_08_24_151931) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -195,6 +195,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_08_20_160819) do
     t.string "repository_owner"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "pr_author"
     t.index ["github_id"], name: "index_review_events_on_github_id", unique: true
     t.index ["reviewer", "submitted_at"], name: "index_review_events_on_reviewer_and_submitted_at"
     t.index ["submitted_at"], name: "index_review_events_on_submitted_at"

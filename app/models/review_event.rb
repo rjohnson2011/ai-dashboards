@@ -12,11 +12,18 @@ class ReviewEvent < ApplicationRecord
 
   scope :counted, -> { where(state: COUNTED_STATE) }
 
+  # Approvals on dependabot PRs are rubber-stamps, not review work — excluded
+  # from all counts (team decision 2026-08-24). NULL pr_author rows (recorded
+  # before the column existed, until the backfill refills them) stay counted:
+  # zeroing every historical row would be worse than briefly overcounting.
+  DEPENDABOT_AUTHOR = "dependabot[bot]".freeze
+
   # Approvals per reviewer since `time`. `reviewers:` narrows to a given list
   # (used for the backend-review-group filter). Plain hash out — no relations
   # leaking into the JSON layer.
   def self.counts_since(time, repository_name: nil, reviewers: nil)
     scope = counted.where("submitted_at >= ?", time)
+      .where("pr_author IS NULL OR pr_author <> ?", DEPENDABOT_AUTHOR)
     scope = scope.where(repository_name: repository_name) if repository_name.present?
     scope = scope.where(reviewer: reviewers) if reviewers.present?
     scope.group(:reviewer).count
@@ -30,7 +37,10 @@ class ReviewEvent < ApplicationRecord
 
     now = Time.current
     stamped = rows.map { |r| r.merge(created_at: now, updated_at: now) }
-    result = insert_all(stamped, unique_by: :github_id)
+    # upsert (not insert): re-running the backfill must be able to fill
+    # pr_author onto rows recorded before the column existed. Only that column
+    # updates on conflict, so counts/timestamps can never be rewritten.
+    result = upsert_all(stamped, unique_by: :github_id, update_only: %i[pr_author])
     result.count
   end
 end

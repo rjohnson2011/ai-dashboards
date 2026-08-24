@@ -12,18 +12,11 @@ class ReviewEvent < ApplicationRecord
 
   scope :counted, -> { where(state: COUNTED_STATE) }
 
-  # Approvals on dependabot PRs are rubber-stamps, not review work — excluded
-  # from all counts (team decision 2026-08-24). NULL pr_author rows (recorded
-  # before the column existed, until the backfill refills them) stay counted:
-  # zeroing every historical row would be worse than briefly overcounting.
-  DEPENDABOT_AUTHOR = "dependabot[bot]".freeze
-
   # Approvals per reviewer since `time`. `reviewers:` narrows to a given list
   # (used for the backend-review-group filter). Plain hash out — no relations
   # leaking into the JSON layer.
   def self.counts_since(time, repository_name: nil, reviewers: nil)
     scope = counted.where("submitted_at >= ?", time)
-      .where("pr_author IS NULL OR pr_author <> ?", DEPENDABOT_AUTHOR)
     scope = scope.where(repository_name: repository_name) if repository_name.present?
     scope = scope.where(reviewer: reviewers) if reviewers.present?
     scope.group(:reviewer).count

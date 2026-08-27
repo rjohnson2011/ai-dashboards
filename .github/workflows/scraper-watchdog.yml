@@ -1,28 +1,32 @@
 name: Scraper Watchdog
 
-# Re-arms PR Scraper Cron when GitHub stops dispatching it.
+# Detects a stalled or failing PR scraper, recovers when it can, and fails loudly
+# so GitHub emails on it.
 #
 # GitHub's `schedule` trigger is best-effort and gets shed under load — on
 # 2026-08-27 the scraper's scheduled runs degraded from ~15/day to 7 to 1, then
 # stopped entirely for 17 hours. Every run that fired succeeded; GitHub simply
-# stopped dispatching them.
+# stopped dispatching them, and nothing noticed.
 #
-# `workflow_dispatch` events are NOT subject to that throttling, so this workflow
-# checks how long it has been since the scraper last completed and dispatches it
-# if the gap is too large. Its own schedule can be throttled too, which is why it
-# runs at a low frequency GitHub is less likely to shed, and why it is a safety
-# net rather than the primary trigger. The durable fix is an external scheduler
-# hitting the workflow_dispatch API — see issue #28.
+# This checks the API's own staleness endpoint rather than run history, so it
+# catches both failure modes: the scraper not running at all, and the scraper
+# running but failing (an expired token, a schema change) which leaves runs on
+# the record while the data goes stale.
 #
-# Overlap is safe: PR Scraper Cron declares `concurrency: {group: pr-scraper,
-# cancel-in-progress: false}`, so a dispatch landing next to a scheduled run
-# queues instead of colliding.
+# Recovery uses `workflow_dispatch`, which is NOT subject to the throttling that
+# drops scheduled runs. Overlap is safe: PR Scraper Cron declares
+# `concurrency: {group: pr-scraper, cancel-in-progress: false}`, so a dispatch
+# landing next to a scheduled run queues instead of colliding.
+#
+# Note this workflow is itself on a `schedule` trigger — the same mechanism that
+# failed. It runs hourly rather than every 15 minutes because GitHub sheds
+# high-frequency schedules first, but it is a safety net, not a guarantee. The
+# durable fix is an external scheduler calling the workflow_dispatch API (#28).
 
 on:
   schedule:
-    # Hourly, on the half hour, across the scraper's window plus an hour either
-    # side. Low frequency is deliberate — GitHub sheds high-frequency schedules
-    # first, and this only needs to catch a sustained stall.
+    # Hourly on the half hour, spanning the scraper's window plus an hour either
+    # side. Low frequency is deliberate — see the note above.
     - cron: '30 12-23 * * 1-5'
   workflow_dispatch:
 
@@ -34,46 +38,65 @@ permissions:
   actions: write # required to dispatch PR Scraper Cron
 
 jobs:
-  check-and-redispatch:
+  check-sync-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Re-dispatch scraper if it has stalled
+      - name: Check sync health, recover, and report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # A scrape takes ~13 minutes and the scraper targets a 15-minute
-          # cadence, so 45 minutes without a completed run means several
-          # consecutive dispatches were dropped, not that one is merely slow.
-          STALL_THRESHOLD_MINUTES: 45
+          API_URL: ${{ secrets.API_URL }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
-          # Most recent completed run, successful or not. A failing scraper is a
-          # different problem and re-dispatching would just repeat the failure,
-          # so only a genuine absence of runs should trigger us.
-          last_run_at=$(gh run list \
-            --repo "${GITHUB_REPOSITORY}" \
-            --workflow pr-scraper.yml \
-            --status completed \
-            --limit 1 \
-            --json updatedAt \
-            --jq '.[0].updatedAt // empty')
+          # The API sleeps on Render's free tier; give it a chance to wake before
+          # treating an unreachable endpoint as a real fault.
+          health=""
+          for attempt in 1 2 3 4 5; do
+            health=$(curl -s --max-time 45 "${API_URL}/api/v1/reviews/sync_health" || true)
+            if [ -n "${health}" ] && echo "${health}" | jq -e 'has("stale")' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Attempt ${attempt}: sync_health not ready, waiting 15s..."
+            sleep 15
+          done
 
-          if [ -z "${last_run_at}" ]; then
-            echo "No completed scraper runs on record — dispatching."
-            gh workflow run pr-scraper.yml --repo "${GITHUB_REPOSITORY}"
+          if [ -z "${health}" ] || ! echo "${health}" | jq -e 'has("stale")' >/dev/null 2>&1; then
+            echo "::error::Could not reach ${API_URL}/api/v1/reviews/sync_health after 5 attempts."
+            exit 1
+          fi
+
+          echo "sync_health: ${health}"
+
+          stale=$(echo "${health}" | jq -r '.stale')
+          age_seconds=$(echo "${health}" | jq -r '.age_seconds // "null"')
+          last_synced_at=$(echo "${health}" | jq -r '.last_synced_at // "never"')
+          failures=$(echo "${health}" | jq -r '.failures_since_success // 0')
+          last_error=$(echo "${health}" | jq -r '.last_error // "none"')
+
+          if [ "${stale}" != "true" ]; then
+            echo "Scraper is healthy — last synced ${last_synced_at} (${age_seconds}s ago)."
             exit 0
           fi
 
-          last_epoch=$(date -u -d "${last_run_at}" +%s)
-          now_epoch=$(date -u +%s)
-          age_minutes=$(( (now_epoch - last_epoch) / 60 ))
+          # Stale. Distinguish "not running" from "running and failing": re-dispatching
+          # a scraper that is failing every run just repeats the failure, so only
+          # attempt recovery when nothing has failed since the last success.
+          echo "Scraper is STALE. last_synced_at=${last_synced_at} failures_since_success=${failures}"
 
-          echo "Last completed scraper run: ${last_run_at} (${age_minutes} minutes ago)"
-
-          if [ "${age_minutes}" -ge "${STALL_THRESHOLD_MINUTES}" ]; then
-            echo "::warning::Scraper has not completed a run in ${age_minutes} minutes (threshold ${STALL_THRESHOLD_MINUTES}). Dispatching."
-            gh workflow run pr-scraper.yml --repo "${GITHUB_REPOSITORY}"
-          else
-            echo "Scraper is running on schedule; nothing to do."
+          if [ "${failures}" -gt 0 ]; then
+            echo "::error::Scraper is stale after ${failures} consecutive failure(s) — not re-dispatching, this needs a human. Last error: ${last_error}"
+            exit 1
           fi
+
+          echo "::warning::No successful sync since ${last_synced_at} and no failures on record — dispatches are being dropped. Re-dispatching."
+          if ! gh workflow run pr-scraper.yml --repo "${GITHUB_REPOSITORY}"; then
+            echo "::error::Failed to dispatch pr-scraper.yml."
+            exit 1
+          fi
+
+          # Fail the job even though recovery was dispatched. A silent self-heal is
+          # how a 17-hour outage went unnoticed; GitHub emails on workflow failure
+          # by default, so this is the notification.
+          echo "::error::Scraper had stalled (last sync ${last_synced_at}); a recovery run was dispatched. If this repeats, the schedule trigger is being throttled — see #28."
+          exit 1

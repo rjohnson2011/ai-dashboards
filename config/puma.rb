@@ -32,13 +32,25 @@ before_fork do
   GC.compact if GC.respond_to?(:compact)
 end
 
-# Cron jobs handle all updates now - no background jobs needed
-# This prevents rate limit issues from the web service IP
-on_worker_boot do
+# Scraping is driven from inside this process (config/initializers/scraper_scheduler.rb).
+#
+# It used to rely solely on the GitHub Actions `schedule:` trigger, which GitHub
+# throttles under load — on 2026-08-27 that trigger went silent for 17 hours. This
+# service is already up 24/7, so it schedules itself and GitHub Actions is now
+# redundancy rather than the critical path.
+#
+# Only worker 0 runs the scheduler. WEB_CONCURRENCY is 1 today, so there is a single
+# worker anyway, but this keeps a concurrency bump from silently starting N schedulers
+# that all scrape at once.
+on_worker_boot do |worker_index|
   ActiveRecord::Base.establish_connection if defined?(ActiveRecord)
 
-  # Log that we're using cron jobs instead
-  if ENV["RAILS_ENV"] == "production"
-    Rails.logger.info "[Puma] Started - Updates handled by Render cron jobs"
+  if ENV["RAILS_ENV"] == "production" && worker_index.to_i.zero?
+    if defined?(ScraperScheduler)
+      ScraperScheduler.start!
+      Rails.logger.info "[Puma] Worker 0 booted — in-process scraper scheduler active"
+    else
+      Rails.logger.error "[Puma] ScraperScheduler not loaded — dashboard will not self-update"
+    end
   end
 end

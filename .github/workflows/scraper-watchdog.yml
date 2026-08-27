@@ -1,0 +1,79 @@
+name: Scraper Watchdog
+
+# Re-arms PR Scraper Cron when GitHub stops dispatching it.
+#
+# GitHub's `schedule` trigger is best-effort and gets shed under load — on
+# 2026-08-27 the scraper's scheduled runs degraded from ~15/day to 7 to 1, then
+# stopped entirely for 17 hours. Every run that fired succeeded; GitHub simply
+# stopped dispatching them.
+#
+# `workflow_dispatch` events are NOT subject to that throttling, so this workflow
+# checks how long it has been since the scraper last completed and dispatches it
+# if the gap is too large. Its own schedule can be throttled too, which is why it
+# runs at a low frequency GitHub is less likely to shed, and why it is a safety
+# net rather than the primary trigger. The durable fix is an external scheduler
+# hitting the workflow_dispatch API — see issue #28.
+#
+# Overlap is safe: PR Scraper Cron declares `concurrency: {group: pr-scraper,
+# cancel-in-progress: false}`, so a dispatch landing next to a scheduled run
+# queues instead of colliding.
+
+on:
+  schedule:
+    # Hourly, on the half hour, across the scraper's window plus an hour either
+    # side. Low frequency is deliberate — GitHub sheds high-frequency schedules
+    # first, and this only needs to catch a sustained stall.
+    - cron: '30 12-23 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: scraper-watchdog
+  cancel-in-progress: false
+
+permissions:
+  actions: write # required to dispatch PR Scraper Cron
+
+jobs:
+  check-and-redispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-dispatch scraper if it has stalled
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A scrape takes ~13 minutes and the scraper targets a 15-minute
+          # cadence, so 45 minutes without a completed run means several
+          # consecutive dispatches were dropped, not that one is merely slow.
+          STALL_THRESHOLD_MINUTES: 45
+        run: |
+          set -euo pipefail
+
+          # Most recent completed run, successful or not. A failing scraper is a
+          # different problem and re-dispatching would just repeat the failure,
+          # so only a genuine absence of runs should trigger us.
+          last_run_at=$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow pr-scraper.yml \
+            --status completed \
+            --limit 1 \
+            --json updatedAt \
+            --jq '.[0].updatedAt // empty')
+
+          if [ -z "${last_run_at}" ]; then
+            echo "No completed scraper runs on record — dispatching."
+            gh workflow run pr-scraper.yml --repo "${GITHUB_REPOSITORY}"
+            exit 0
+          fi
+
+          last_epoch=$(date -u -d "${last_run_at}" +%s)
+          now_epoch=$(date -u +%s)
+          age_minutes=$(( (now_epoch - last_epoch) / 60 ))
+
+          echo "Last completed scraper run: ${last_run_at} (${age_minutes} minutes ago)"
+
+          if [ "${age_minutes}" -ge "${STALL_THRESHOLD_MINUTES}" ]; then
+            echo "::warning::Scraper has not completed a run in ${age_minutes} minutes (threshold ${STALL_THRESHOLD_MINUTES}). Dispatching."
+            gh workflow run pr-scraper.yml --repo "${GITHUB_REPOSITORY}"
+          else
+            echo "Scraper is running on schedule; nothing to do."
+          fi

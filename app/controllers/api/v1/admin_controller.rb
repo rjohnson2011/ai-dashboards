@@ -379,6 +379,22 @@ module Api
         # Run synchronously - the :async adapter loses jobs on server restart/sleep
         # GHA triggers this every 15 min so it's better to run inline
         started_at = Time.current
+
+        # ReviewsController#sync_health measures staleness from CronJobLog, so this
+        # path has to write one. It previously did not: CronJobLog was only written by
+        # scripts/render_cron_wrapper.rb, the retired Render cron. Once the scraper
+        # moved to GitHub Actions (which calls this action) nothing wrote the table,
+        # so sync_health reported last_synced_at: nil forever and its one-hour
+        # staleness check could never fire -- a 17-hour outage on 2026-08-27 went
+        # unnoticed because of it.
+        cron_log = begin
+          CronJobLog.create!(status: "running", started_at: started_at)
+        rescue => e
+          # Never let logging break the scrape itself.
+          Rails.logger.warn "[AdminController] Could not create CronJobLog: #{e.message}"
+          nil
+        end
+
         begin
           FetchAllPullRequestsJob.perform_now(
             repository_name: repo_name,
@@ -386,16 +402,28 @@ module Api
             lite_mode: lite_mode
           )
 
+          completed_at = Time.current
+          update_cron_log(cron_log, status: "completed", completed_at: completed_at)
+
           render json: {
             success: true,
             message: "Scraper completed successfully",
             repository: "#{repo_owner}/#{repo_name}",
             started_at: started_at,
-            completed_at: Time.current,
-            duration_seconds: (Time.current - started_at).round(2)
+            completed_at: completed_at,
+            duration_seconds: (completed_at - started_at).round(2)
           }
         rescue => e
           Rails.logger.error "[AdminController] Scraper failed: #{e.message}"
+          update_cron_log(
+            cron_log,
+            status: "failed",
+            completed_at: Time.current,
+            error_class: e.class.name,
+            error_message: e.message,
+            error_backtrace: e.backtrace&.first(20)&.join("\n")
+          )
+
           render json: {
             success: false,
             message: "Scraper failed: #{e.message}",
@@ -877,6 +905,17 @@ module Api
       end
 
       private
+
+      # Best effort: a CronJobLog write must never turn a successful scrape into a
+      # 500, so failures here are logged and swallowed. Accepts a nil log for the
+      # case where the initial create! failed.
+      def update_cron_log(cron_log, **attributes)
+        return if cron_log.nil?
+
+        cron_log.update!(**attributes)
+      rescue => e
+        Rails.logger.warn "[AdminController] Could not update CronJobLog: #{e.message}"
+      end
 
       def cleanup_merged_prs_internal
         github_token = ENV["GITHUB_TOKEN"]

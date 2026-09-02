@@ -26,8 +26,14 @@ class Api::V1::SprintMetricsController < ApplicationController
       end
     end
 
+    # Individual approvals for the analytics charts (daily trend, sparklines,
+    # weekday heatmap). Same reviewer filter as the totals so every number on
+    # the page describes the same slice. 90 days keeps the payload small.
+    events = ReviewEvent.recent_approvals(90.days.ago, repository_name: repository_name, reviewers: reviewers)
+
     # `windows` kept for any consumer of the old shape (combined scope).
-    render json: { scopes: payload, windows: payload[:all], backend_members: backend_members, generated_at: Time.current }
+    render json: { scopes: payload, windows: payload[:all], events: events,
+                   backend_members: backend_members, generated_at: Time.current }
   rescue StandardError => e
     Rails.logger.error "[SprintMetrics] reviewer_activity failed: #{e.class}: #{e.message}"
     render json: { error: "Failed to load reviewer activity" }, status: :internal_server_error

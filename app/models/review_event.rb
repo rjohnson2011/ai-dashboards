@@ -38,6 +38,22 @@ class ReviewEvent < ApplicationRecord
     scope.group(:reviewer).count
   end
 
+  # Every counted approval since `time`, oldest first, as plain hashes ready
+  # for JSON. Feeds the analytics page's time-series charts, which need the
+  # individual timestamps rather than the per-window totals above. Same
+  # reviewer/repository narrowing as counts_since so the charts and the
+  # leaderboard always describe the same slice.
+  def self.recent_approvals(time, repository_name: nil, reviewers: nil)
+    scope = counted.where("submitted_at >= ?", time)
+    scope = scope.where(repository_name: repository_name) if repository_name.present?
+    scope = scope.where(reviewer: reviewers) if reviewers.present?
+    scope.order(:submitted_at, :id)
+         .pluck(:reviewer, :submitted_at, :pr_author, :pr_number, :repository_name)
+         .map do |reviewer, at, author, pr, repo|
+      { reviewer: reviewer, at: at.iso8601, dependabot: DEPENDABOT_AUTHORS.include?(author), pr: pr, repo: repo }
+    end
+  end
+
   # Idempotent bulk write: re-recording the same review is a no-op because
   # github_ids are stable (REST integer IDs, or SHA256-hashed GraphQL node IDs
   # — see GithubService#graphql_reviews).

@@ -70,4 +70,16 @@ class Api::V1::SprintMetricsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "https://va.ghe.com/dsva/vets-api/pull/1", "https://va.ghe.com/dsva/vets-api/pull/2" ],
                  events.map { |e| e["url"] }
   end
+
+  test "reviewer_activity totals include a 90-day window" do
+    approve(github_id: 1, reviewer: "bob", ago: 60.days)
+    approve(github_id: 2, reviewer: "bob", ago: 100.days)
+
+    get "/api/v1/reviews/reviewer_activity", headers: { "Authorization" => "Bearer #{@token}" }
+
+    assert_response :success
+    scopes = JSON.parse(response.body)["scopes"]["all"]
+    assert_equal [ { "reviewer" => "bob", "count" => 1 } ], scopes["quarter"]
+    assert_equal [], scopes["month"]
+  end
 end

@@ -14,6 +14,7 @@ class Api::V1::SprintMetricsController < ApplicationController
       day: 1.day.ago,
       week: 7.days.ago,
       month: 30.days.ago,
+      quarter: 90.days.ago,
       ytd: Time.zone.local(2026, 1, 1)
     }
 

@@ -1,4 +1,7 @@
 class Api::V1::SprintMetricsController < ApplicationController
+  DEFAULT_EVENTS_DAYS = 90
+  MAX_EVENTS_DAYS = 366
+
   # Approvals per reviewer over fixed windows. Replaces the sprint/rotation
   # view — the team no longer runs sprints. APPROVED only, by team decision;
   # see ReviewEvent::COUNTED_STATE.
@@ -28,8 +31,11 @@ class Api::V1::SprintMetricsController < ApplicationController
 
     # Individual approvals for the analytics charts (daily trend, sparklines,
     # weekday heatmap). Same reviewer filter as the totals so every number on
-    # the page describes the same slice. 90 days keeps the payload small.
-    events = ReviewEvent.recent_approvals(90.days.ago, repository_name: repository_name, reviewers: reviewers)
+    # the page describes the same slice. 90 days by default keeps the payload
+    # small; the page asks for up to a year when its chart range needs it.
+    events_days = params[:events_days].presence&.to_i || DEFAULT_EVENTS_DAYS
+    events_days = events_days.clamp(1, MAX_EVENTS_DAYS)
+    events = ReviewEvent.recent_approvals(events_days.days.ago, repository_name: repository_name, reviewers: reviewers)
 
     # `windows` kept for any consumer of the old shape (combined scope).
     render json: { scopes: payload, windows: payload[:all], events: events,

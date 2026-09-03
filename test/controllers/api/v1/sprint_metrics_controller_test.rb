@@ -43,4 +43,15 @@ class Api::V1::SprintMetricsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal [ "carol" ], JSON.parse(response.body)["events"].map { |e| e["reviewer"] }
   end
+
+  test "events_days widens the events window, capped at a year" do
+    approve(github_id: 1, reviewer: "bob", ago: 120.days)
+    approve(github_id: 2, reviewer: "carol", ago: 400.days)
+
+    get "/api/v1/reviews/reviewer_activity", params: { events_days: "1000" },
+        headers: { "Authorization" => "Bearer #{@token}" }
+
+    assert_response :success
+    assert_equal [ "bob" ], JSON.parse(response.body)["events"].map { |e| e["reviewer"] }
+  end
 end

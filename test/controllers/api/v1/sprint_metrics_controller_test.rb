@@ -54,4 +54,20 @@ class Api::V1::SprintMetricsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal [ "bob" ], JSON.parse(response.body)["events"].map { |e| e["reviewer"] }
   end
+
+  test "events carry the PR link and, when the PR is still known, its title" do
+    approve(github_id: 1, reviewer: "bob", ago: 2.days)
+    approve(github_id: 2, reviewer: "carol", ago: 1.day)
+    PullRequest.create!(github_id: 900_001, number: 1, title: "Fix claim status", author: "alice", state: "open",
+                        repository_name: "vets-api", repository_owner: "dsva",
+                        url: "https://va.ghe.com/dsva/vets-api/pull/1")
+
+    get "/api/v1/reviews/reviewer_activity", headers: { "Authorization" => "Bearer #{@token}" }
+
+    assert_response :success
+    events = JSON.parse(response.body)["events"]
+    assert_equal [ "Fix claim status", nil ], events.map { |e| e["title"] }
+    assert_equal [ "https://va.ghe.com/dsva/vets-api/pull/1", "https://va.ghe.com/dsva/vets-api/pull/2" ],
+                 events.map { |e| e["url"] }
+  end
 end

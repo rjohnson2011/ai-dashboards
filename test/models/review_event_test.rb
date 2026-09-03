@@ -22,8 +22,10 @@ class ReviewEventTest < ActiveSupport::TestCase
     events = ReviewEvent.recent_approvals(@now - 7.days)
 
     assert_equal [
-      { reviewer: "bob", at: (@now - 2.days).iso8601, dependabot: false, pr: 1, repo: "vets-api" },
-      { reviewer: "carol", at: (@now - 1.day).iso8601, dependabot: true, pr: 2, repo: "vets-api" }
+      { reviewer: "bob", at: (@now - 2.days).iso8601, dependabot: false, pr: 1, repo: "vets-api",
+        title: nil, url: "https://va.ghe.com/dsva/vets-api/pull/1" },
+      { reviewer: "carol", at: (@now - 1.day).iso8601, dependabot: true, pr: 2, repo: "vets-api",
+        title: nil, url: "https://va.ghe.com/dsva/vets-api/pull/2" }
     ], events
   end
 

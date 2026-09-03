@@ -43,15 +43,33 @@ class ReviewEvent < ApplicationRecord
   # individual timestamps rather than the per-window totals above. Same
   # reviewer/repository narrowing as counts_since so the charts and the
   # leaderboard always describe the same slice.
+  # Each event carries the PR's web link (buildable from owner/repo/number
+  # alone) and its title when the PR row still exists — merged PRs are
+  # deleted by the scraper's cleanup, so the title is best-effort.
   def self.recent_approvals(time, repository_name: nil, reviewers: nil)
     scope = counted.where("submitted_at >= ?", time)
     scope = scope.where(repository_name: repository_name) if repository_name.present?
     scope = scope.where(reviewer: reviewers) if reviewers.present?
-    scope.order(:submitted_at, :id)
-         .pluck(:reviewer, :submitted_at, :pr_author, :pr_number, :repository_name)
-         .map do |reviewer, at, author, pr, repo|
-      { reviewer: reviewer, at: at.iso8601, dependabot: DEPENDABOT_AUTHORS.include?(author), pr: pr, repo: repo }
+    rows = scope.order(:submitted_at, :id)
+                .pluck(:reviewer, :submitted_at, :pr_author, :pr_number, :repository_name, :repository_owner)
+    titles = pr_titles_for(rows.map { |r| [ r[5], r[4], r[3] ] }.uniq)
+    rows.map do |reviewer, at, author, pr, repo, owner|
+      {
+        reviewer: reviewer, at: at.iso8601, dependabot: DEPENDABOT_AUTHORS.include?(author),
+        pr: pr, repo: repo, title: titles[[ owner, repo, pr ]],
+        url: "#{Octokit.web_endpoint.to_s.chomp('/')}/#{owner}/#{repo}/pull/#{pr}"
+      }
     end
+  end
+
+  # { [owner, repo, number] => title } for the PRs we still hold a row for.
+  def self.pr_titles_for(keys)
+    return {} if keys.empty?
+
+    numbers = keys.map(&:last).compact.uniq
+    PullRequest.where(number: numbers)
+                .pluck(:repository_owner, :repository_name, :number, :title)
+                .each_with_object({}) { |(owner, repo, number, title), h| h[[ owner, repo, number ]] = title }
   end
 
   # Idempotent bulk write: re-recording the same review is a no-op because
